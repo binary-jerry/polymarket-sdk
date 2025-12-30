@@ -107,7 +107,37 @@ func (m *Manager) handleClientDisconnect(clientID string) {
 }
 
 // handleMessage 处理WebSocket消息
+// 支持两种格式：
+// 1. 数组格式（初始化订阅时批量发送）：[{event_type: "book", ...}, ...]
+// 2. 单个对象格式（后续增量更新）：{event_type: "book", ...}
 func (m *Manager) handleMessage(data []byte) {
+	// 检查是否是数组格式（以 '[' 开头）
+	if len(data) > 0 && data[0] == '[' {
+		m.handleMessageArray(data)
+		return
+	}
+
+	// 单个对象格式
+	m.handleSingleMessage(data)
+}
+
+// handleMessageArray 处理消息数组
+func (m *Manager) handleMessageArray(data []byte) {
+	var rawMessages []json.RawMessage
+	if err := json.Unmarshal(data, &rawMessages); err != nil {
+		log.Printf("[Manager] failed to unmarshal message array: %v", err)
+		return
+	}
+
+	log.Printf("[Manager] received batch of %d messages", len(rawMessages))
+
+	for _, rawMsg := range rawMessages {
+		m.handleSingleMessage(rawMsg)
+	}
+}
+
+// handleSingleMessage 处理单条消息
+func (m *Manager) handleSingleMessage(data []byte) {
 	// 首先解析消息类型
 	var raw RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
