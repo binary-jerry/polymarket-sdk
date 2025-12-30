@@ -187,8 +187,8 @@ func (m *Manager) handleBookMessage(data []byte) {
 
 	// 应用快照
 	if ob.ApplyBookSnapshot(&msg, ts) {
-		log.Printf("[Manager] applied book snapshot for token %s, bids: %d, asks: %d",
-			msg.AssetID, len(msg.Bids), len(msg.Asks))
+		//log.Printf("[Manager] applied book snapshot for token %s, bids: %d, asks: %d",
+		//	msg.AssetID, len(msg.Bids), len(msg.Asks))
 
 		// 应用待处理的price_change消息
 		pending := m.pendingChanges[msg.AssetID]

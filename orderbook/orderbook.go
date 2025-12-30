@@ -271,8 +271,9 @@ func (ob *OrderBook) GetBestAsk() *BestPrice {
 	}
 
 	return &BestPrice{
-		Price: ob.sortedAsks[0].Price,
-		Size:  ob.sortedAsks[0].Size,
+		Price:     ob.sortedAsks[0].Price,
+		Size:      ob.sortedAsks[0].Size,
+		Timestamp: ob.timestamp,
 	}
 }
 

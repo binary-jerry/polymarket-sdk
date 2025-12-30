@@ -42,10 +42,10 @@ func (s ConnectionState) String() string {
 type EventType string
 
 const (
-	EventTypeBook            EventType = "book"
-	EventTypePriceChange     EventType = "price_change"
-	EventTypeTickSizeChange  EventType = "tick_size_change"
-	EventTypeLastTradePrice  EventType = "last_trade_price"
+	EventTypeBook           EventType = "book"
+	EventTypePriceChange    EventType = "price_change"
+	EventTypeTickSizeChange EventType = "tick_size_change"
+	EventTypeLastTradePrice EventType = "last_trade_price"
 )
 
 // Side 买卖方向
@@ -140,8 +140,9 @@ type OrderBookUpdate struct {
 
 // BestPrice 最优价格（包含价格和数量）
 type BestPrice struct {
-	Price decimal.Decimal
-	Size  decimal.Decimal
+	Price     decimal.Decimal
+	Size      decimal.Decimal
+	Timestamp int64
 }
 
 // BBO 最优买卖价（Best Bid and Offer）
@@ -152,9 +153,9 @@ type BBO struct {
 
 // ScanResult 扫描结果
 type ScanResult struct {
-	Orders       []OrderSummary  // 符合条件的订单列表
-	TotalSize    decimal.Decimal // 总数量
-	AvgPrice     decimal.Decimal // 加权平均价格
+	Orders    []OrderSummary  // 符合条件的订单列表
+	TotalSize decimal.Decimal // 总数量
+	AvgPrice  decimal.Decimal // 加权平均价格
 }
 
 // Config SDK配置
@@ -164,9 +165,9 @@ type Config struct {
 	// 每个连接最大token数量
 	MaxTokensPerConn int
 	// 重连配置
-	ReconnectMinInterval  int // 最小重连间隔（毫秒）
-	ReconnectMaxInterval  int // 最大重连间隔（毫秒）
-	ReconnectMaxAttempts  int // 最大重连次数，0表示无限
+	ReconnectMinInterval int // 最小重连间隔（毫秒）
+	ReconnectMaxInterval int // 最大重连间隔（毫秒）
+	ReconnectMaxAttempts int // 最大重连次数，0表示无限
 	// 心跳配置
 	PingInterval int // ping间隔（秒）
 	PongTimeout  int // pong超时（秒）

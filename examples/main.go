@@ -1,18 +1,36 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/houjie/polymarket-sdk/orderbook"
 	"github.com/shopspring/decimal"
 )
 
+// 全局数据库连接
+var db *sql.DB
+
 func main() {
+	// 初始化数据库连接
+	var err error
+	db, err = sql.Open("mysql", "root:Daheng467.@tcp(127.0.0.1:3306)/polymarket?parseTime=true")
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer db.Close()
+
+	// 测试数据库连接
+	if err = db.Ping(); err != nil {
+		log.Fatalf("Failed to ping database: %v", err)
+	}
+	log.Println("Database connected successfully")
+
 	// 创建SDK配置（可选，使用默认配置）
 	config := orderbook.DefaultConfig()
 	// 可以自定义配置
@@ -26,8 +44,8 @@ func main() {
 	// 要订阅的token列表
 	// 这里使用示例token ID，实际使用时替换为真实的token ID
 	tokenIDs := []string{
-		"68223102923267331646005976775299088546742630986462561370036398459309558832347",
-		"30194141944257520724457078025473037238011003527494735274360531708147768120516",
+		"86048179007629022807705037775458342506338650261339576882051926945843401279995",
+		"28309349346511781004115470700800075779705976016724226277609716433615157969772",
 		// 可以添加更多token，超过50个会自动创建新的WebSocket连接
 	}
 
@@ -45,26 +63,32 @@ func main() {
 			return
 		}
 
-		for update := range updates {
-			log.Printf("OrderBook updated: token=%s, event=%s, timestamp=%d",
-				update.TokenID, update.EventType, update.Timestamp)
+		for range updates {
+			//if update.EventType == "price_change" {
+			//	log.Println("price_change")
+			//}
+			//if update.EventType == "book" {
+			//	log.Println("book")
+			//}
+			//log.Printf("OrderBook updated: token=%s, event=%s, timestamp=%d",
+			//	update.TokenID, update.EventType, update.Timestamp)
 
 			// 在收到更新后查询订单簿信息
-			printOrderBookInfo(sdk, update.TokenID)
+			printOrderBookInfo(sdk, tokenIDs)
 		}
 	}()
 
 	// 等待初始化完成
-	log.Println("Waiting for orderbooks to initialize...")
-	for !sdk.IsAllInitialized() {
-		time.Sleep(100 * time.Millisecond)
-	}
-	log.Println("All orderbooks initialized")
-
-	// 演示各种API调用
-	for _, tokenID := range tokenIDs {
-		demonstrateAPI(sdk, tokenID)
-	}
+	//log.Println("Waiting for orderbooks to initialize...")
+	//for !sdk.IsAllInitialized() {
+	//	time.Sleep(100 * time.Millisecond)
+	//}
+	//log.Println("All orderbooks initialized")
+	//
+	//// 演示各种API调用
+	//for _, tokenID := range tokenIDs {
+	//	demonstrateAPI(sdk, tokenID)
+	//}
 
 	// 优雅关闭
 	sigChan := make(chan os.Signal, 1)
@@ -76,19 +100,40 @@ func main() {
 	log.Println("Shutting down...")
 }
 
-func printOrderBookInfo(sdk *orderbook.SDK, tokenID string) {
-	// 获取最优买卖价
-	bbo, err := sdk.GetBBO(tokenID)
+func printOrderBookInfo(sdk *orderbook.SDK, tokenIDs []string) {
+	yes, err := sdk.GetBestAsk(tokenIDs[0])
 	if err != nil {
-		log.Printf("  GetBBO error: %v", err)
+		log.Printf("GetBestAsk error: %v", err)
+		return
+	}
+	no, err := sdk.GetBestAsk(tokenIDs[1])
+	if err != nil {
+		log.Printf("GetBestAsk error: %v", err)
+		return
+	}
+	priceSum := yes.Price.Add(no.Price)
+
+	_, err = db.Exec(`
+		INSERT INTO orderbook
+		(yes_token_id, no_token_id, yes_price, yes_size, no_price, no_size, price_sum, yes_time, no_time)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		tokenIDs[0],
+		tokenIDs[1],
+		yes.Price.String(),
+		yes.Size.String(),
+		no.Price.String(),
+		no.Size.String(),
+		priceSum.String(),
+		yes.Timestamp,
+		no.Timestamp,
+	)
+	if err != nil {
+		log.Printf("Failed to insert into database: %v", err)
 		return
 	}
 
-	if bbo.BestBid != nil {
-		log.Printf("  Best Bid: %s @ %s", bbo.BestBid.Price, bbo.BestBid.Size)
-	}
-	if bbo.BestAsk != nil {
-		log.Printf("  Best Ask: %s @ %s", bbo.BestAsk.Price, bbo.BestAsk.Size)
+	if priceSum.LessThan(decimal.NewFromInt(1)) {
+		log.Printf("Yes Price %s, No Price %s, sum %s \n", yes.Price, no.Price, priceSum)
 	}
 }
 
