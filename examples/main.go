@@ -59,6 +59,7 @@ func main() {
 
 	// 启动更新监听goroutine
 	go func() {
+		
 		updates := sdk.Updates()
 		if updates == nil {
 			return
