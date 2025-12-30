@@ -348,6 +348,13 @@ func (c *WSClient) triggerReconnect() {
 		return
 	}
 
+	// 取消 loopCtx，通知所有 loop goroutine 退出
+	c.mu.Lock()
+	if c.loopCancel != nil {
+		c.loopCancel()
+	}
+	c.mu.Unlock()
+
 	c.closeConnection()
 	c.setState(StateReconnecting)
 
