@@ -40,6 +40,23 @@ func NewOrderBook(tokenID string) *OrderBook {
 	}
 }
 
+// Reset 重置订单簿状态（保留tokenID，清空其他数据）
+func (ob *OrderBook) Reset() {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+
+	ob.market = ""
+	ob.hash = ""
+	ob.timestamp = 0
+	ob.initialized = false
+	ob.bids = make(map[string]decimal.Decimal)
+	ob.asks = make(map[string]decimal.Decimal)
+	ob.sortedBids = nil
+	ob.sortedAsks = nil
+	ob.bidsDirty = true
+	ob.asksDirty = true
+}
+
 // TokenID 获取token ID
 func (ob *OrderBook) TokenID() string {
 	ob.mu.RLock()

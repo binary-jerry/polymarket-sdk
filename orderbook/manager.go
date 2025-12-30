@@ -95,11 +95,11 @@ func (m *Manager) handleClientDisconnect(clientID string) {
 	}
 
 	// 遍历所有订单簿，重置与该客户端相关的
-	for tokenID := range m.orderBooks {
+	for tokenID, ob := range m.orderBooks {
 		c := m.pool.GetClientForToken(tokenID)
 		if c != nil && c.ID() == clientID {
-			// 创建新的订单簿（重置状态）
-			m.orderBooks[tokenID] = NewOrderBook(tokenID)
+			// 重置订单簿状态（保留对象引用，避免外部持有旧引用的问题）
+			ob.Reset()
 			m.pendingChanges[tokenID] = make([]*pendingPriceChange, 0)
 			log.Printf("[Manager] reset orderbook for token %s due to client %s disconnect", tokenID, clientID)
 		}

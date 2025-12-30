@@ -30,14 +30,20 @@ type WSClient struct {
 	onStateChange func(ConnectionState)
 
 	// 控制通道
-	ctx        context.Context
-	cancel     context.CancelFunc
-	writeChan  chan []byte
-	closeChan  chan struct{}
-	closeOnce  sync.Once
+	ctx       context.Context
+	cancel    context.CancelFunc
+	writeChan chan []byte
+	closeChan chan struct{}
+	closeOnce sync.Once
+
+	// goroutine 生命周期控制
+	loopCtx    context.Context
+	loopCancel context.CancelFunc
+	loopWg     sync.WaitGroup
 
 	// 重连控制
 	reconnectAttempts int32
+	reconnecting      int32 // 原子标记，防止多次触发重连
 
 	// 心跳控制
 	lastPong time.Time
@@ -97,6 +103,9 @@ func (c *WSClient) setState(state ConnectionState) {
 
 // Connect 建立连接
 func (c *WSClient) Connect() error {
+	// 先停止旧的 goroutine
+	c.stopLoops()
+
 	c.setState(StateConnecting)
 
 	dialer := websocket.Dialer{
@@ -109,9 +118,11 @@ func (c *WSClient) Connect() error {
 		return err
 	}
 
+	// 创建新的 loop context
 	c.mu.Lock()
 	c.conn = conn
 	c.lastPong = time.Now()
+	c.loopCtx, c.loopCancel = context.WithCancel(c.ctx)
 	c.mu.Unlock()
 
 	c.setState(StateConnected)
@@ -125,17 +136,31 @@ func (c *WSClient) Connect() error {
 	})
 
 	// 启动goroutines
+	c.loopWg.Add(3)
 	go c.readLoop()
 	go c.writeLoop()
 	go c.heartbeatLoop()
 
 	// 发送订阅请求
 	if err := c.subscribe(); err != nil {
+		c.stopLoops()
 		c.closeConnection()
 		return err
 	}
 
 	return nil
+}
+
+// stopLoops 停止所有循环 goroutine
+func (c *WSClient) stopLoops() {
+	c.mu.Lock()
+	if c.loopCancel != nil {
+		c.loopCancel()
+	}
+	c.mu.Unlock()
+
+	// 等待所有 goroutine 退出
+	c.loopWg.Wait()
 }
 
 // subscribe 发送订阅请求
@@ -152,13 +177,20 @@ func (c *WSClient) subscribe() error {
 		return err
 	}
 
+	c.mu.RLock()
+	loopCtx := c.loopCtx
+	c.mu.RUnlock()
+
 	select {
 	case c.writeChan <- data:
 		c.setState(StateActive)
 		atomic.StoreInt32(&c.reconnectAttempts, 0)
+		atomic.StoreInt32(&c.reconnecting, 0)
 		return nil
 	case <-c.ctx.Done():
 		return c.ctx.Err()
+	case <-loopCtx.Done():
+		return loopCtx.Err()
 	case <-time.After(5 * time.Second):
 		return context.DeadlineExceeded
 	}
@@ -166,15 +198,20 @@ func (c *WSClient) subscribe() error {
 
 // readLoop 读取消息循环
 func (c *WSClient) readLoop() {
-	defer func() {
-		c.handleDisconnect()
-	}()
+	defer c.loopWg.Done()
+	defer c.triggerReconnect()
+
+	c.mu.RLock()
+	loopCtx := c.loopCtx
+	c.mu.RUnlock()
 
 	for {
 		select {
 		case <-c.ctx.Done():
 			return
 		case <-c.closeChan:
+			return
+		case <-loopCtx.Done():
 			return
 		default:
 		}
@@ -210,11 +247,19 @@ func (c *WSClient) readLoop() {
 
 // writeLoop 写入消息循环
 func (c *WSClient) writeLoop() {
+	defer c.loopWg.Done()
+
+	c.mu.RLock()
+	loopCtx := c.loopCtx
+	c.mu.RUnlock()
+
 	for {
 		select {
 		case <-c.ctx.Done():
 			return
 		case <-c.closeChan:
+			return
+		case <-loopCtx.Done():
 			return
 		case data := <-c.writeChan:
 			c.mu.RLock()
@@ -236,14 +281,22 @@ func (c *WSClient) writeLoop() {
 
 // heartbeatLoop 心跳循环
 func (c *WSClient) heartbeatLoop() {
+	defer c.loopWg.Done()
+
 	ticker := time.NewTicker(time.Duration(c.config.PingInterval) * time.Second)
 	defer ticker.Stop()
+
+	c.mu.RLock()
+	loopCtx := c.loopCtx
+	c.mu.RUnlock()
 
 	for {
 		select {
 		case <-c.ctx.Done():
 			return
 		case <-c.closeChan:
+			return
+		case <-loopCtx.Done():
 			return
 		case <-ticker.C:
 			c.mu.RLock()
@@ -252,13 +305,12 @@ func (c *WSClient) heartbeatLoop() {
 			c.mu.RUnlock()
 
 			if conn == nil {
-				continue
+				return
 			}
 
 			// 检查pong超时
 			if time.Since(lastPong) > time.Duration(c.config.PingInterval+c.config.PongTimeout)*time.Second {
 				log.Printf("[WSClient %s] pong timeout, reconnecting...", c.id)
-				c.handleDisconnect()
 				return
 			}
 
@@ -272,20 +324,34 @@ func (c *WSClient) heartbeatLoop() {
 	}
 }
 
-// handleDisconnect 处理断开连接
-func (c *WSClient) handleDisconnect() {
-	c.mu.Lock()
+// triggerReconnect 触发重连（确保只触发一次）
+func (c *WSClient) triggerReconnect() {
+	// 检查是否已关闭
+	select {
+	case <-c.closeChan:
+		return
+	case <-c.ctx.Done():
+		return
+	default:
+	}
+
+	c.mu.RLock()
 	currentState := c.state
-	c.mu.Unlock()
+	c.mu.RUnlock()
 
 	if currentState == StateClosed {
+		return
+	}
+
+	// 使用 CAS 确保只有一个 goroutine 触发重连
+	if !atomic.CompareAndSwapInt32(&c.reconnecting, 0, 1) {
 		return
 	}
 
 	c.closeConnection()
 	c.setState(StateReconnecting)
 
-	// 启动重连
+	// 启动重连（在新 goroutine 中，因为当前 goroutine 要退出）
 	go c.reconnect()
 }
 
@@ -303,6 +369,12 @@ func (c *WSClient) closeConnection() {
 
 // reconnect 重连逻辑
 func (c *WSClient) reconnect() {
+	// 等待旧的 goroutine 退出
+	c.loopWg.Wait()
+
+	// 清空 writeChan 中的旧消息
+	c.drainWriteChan()
+
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -318,6 +390,7 @@ func (c *WSClient) reconnect() {
 		if c.config.ReconnectMaxAttempts > 0 && int(attempts) > c.config.ReconnectMaxAttempts {
 			log.Printf("[WSClient %s] max reconnect attempts reached", c.id)
 			c.setState(StateDisconnected)
+			atomic.StoreInt32(&c.reconnecting, 0)
 			return
 		}
 
@@ -341,6 +414,17 @@ func (c *WSClient) reconnect() {
 
 		log.Printf("[WSClient %s] reconnected successfully", c.id)
 		return
+	}
+}
+
+// drainWriteChan 清空写入通道中的旧消息
+func (c *WSClient) drainWriteChan() {
+	for {
+		select {
+		case <-c.writeChan:
+		default:
+			return
+		}
 	}
 }
 
@@ -372,6 +456,7 @@ func (c *WSClient) Close() {
 		c.setState(StateClosed)
 		c.cancel()
 		close(c.closeChan)
+		c.stopLoops()
 		c.closeConnection()
 	})
 }

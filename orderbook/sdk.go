@@ -3,6 +3,7 @@ package orderbook
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/shopspring/decimal"
 )
@@ -11,12 +12,15 @@ var (
 	ErrNotInitialized = errors.New("orderbook not initialized")
 	ErrTokenNotFound  = errors.New("token not found")
 	ErrNoData         = errors.New("no data available")
+	ErrAlreadyStarted = errors.New("sdk already started")
 )
 
 // SDK 订单簿SDK对外接口
 type SDK struct {
+	mu      sync.RWMutex
 	manager *Manager
 	config  *Config
+	started bool
 }
 
 // NewSDK 创建新的SDK实例
@@ -32,16 +36,32 @@ func NewSDK(config *Config) *SDK {
 
 // Subscribe 订阅token列表
 func (s *SDK) Subscribe(tokenIDs []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.started {
+		return ErrAlreadyStarted
+	}
+
 	if len(tokenIDs) == 0 {
 		return errors.New("tokenIDs cannot be empty")
 	}
 
 	s.manager = NewManager(s.config)
-	return s.manager.Subscribe(tokenIDs)
+	if err := s.manager.Subscribe(tokenIDs); err != nil {
+		s.manager = nil
+		return err
+	}
+
+	s.started = true
+	return nil
 }
 
 // Updates 获取更新通知channel
 func (s *SDK) Updates() <-chan OrderBookUpdate {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if s.manager == nil {
 		return nil
 	}
@@ -50,13 +70,21 @@ func (s *SDK) Updates() <-chan OrderBookUpdate {
 
 // Close 关闭SDK
 func (s *SDK) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.manager != nil {
 		s.manager.Close()
+		s.manager = nil
 	}
+	s.started = false
 }
 
 // IsInitialized 检查指定token的订单簿是否已初始化
 func (s *SDK) IsInitialized(tokenID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if s.manager == nil {
 		return false
 	}
@@ -65,6 +93,9 @@ func (s *SDK) IsInitialized(tokenID string) bool {
 
 // IsAllInitialized 检查所有订单簿是否都已初始化
 func (s *SDK) IsAllInitialized() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if s.manager == nil {
 		return false
 	}
@@ -73,14 +104,17 @@ func (s *SDK) IsAllInitialized() bool {
 
 // GetConnectionStatus 获取连接状态
 func (s *SDK) GetConnectionStatus() map[string]ConnectionState {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if s.manager == nil {
 		return nil
 	}
 	return s.manager.GetConnectionStatus()
 }
 
-// getOrderBook 获取订单簿（内部方法）
-func (s *SDK) getOrderBook(tokenID string) (*OrderBook, error) {
+// getOrderBook 获取订单簿（内部方法，调用者需持有读锁）
+func (s *SDK) getOrderBookLocked(tokenID string) (*OrderBook, error) {
 	if s.manager == nil {
 		return nil, errors.New("sdk not initialized, call Subscribe first")
 	}
@@ -95,15 +129,15 @@ func (s *SDK) getOrderBook(tokenID string) (*OrderBook, error) {
 
 // GetBestBid 获取最优买价（包括量）
 func (s *SDK) GetBestBid(tokenID string) (*BestPrice, error) {
-	ob, err := s.getOrderBook(tokenID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
 	if err != nil {
 		return nil, err
 	}
 
-	if !ob.IsInitialized() {
-		return nil, ErrNotInitialized
-	}
-
+	// GetBestBid 内部会检查 initialized，并在同一个锁内返回数据
 	result := ob.GetBestBid()
 	if result == nil {
 		return nil, ErrNoData
@@ -114,13 +148,12 @@ func (s *SDK) GetBestBid(tokenID string) (*BestPrice, error) {
 
 // GetBestAsk 获取最优卖价（包括量）
 func (s *SDK) GetBestAsk(tokenID string) (*BestPrice, error) {
-	ob, err := s.getOrderBook(tokenID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
 	if err != nil {
 		return nil, err
-	}
-
-	if !ob.IsInitialized() {
-		return nil, ErrNotInitialized
 	}
 
 	result := ob.GetBestAsk()
@@ -133,27 +166,30 @@ func (s *SDK) GetBestAsk(tokenID string) (*BestPrice, error) {
 
 // GetBBO 获取最优买卖价
 func (s *SDK) GetBBO(tokenID string) (*BBO, error) {
-	ob, err := s.getOrderBook(tokenID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
 	if err != nil {
 		return nil, err
 	}
 
-	if !ob.IsInitialized() {
+	result := ob.GetBBO()
+	if result == nil {
 		return nil, ErrNotInitialized
 	}
 
-	return ob.GetBBO(), nil
+	return result, nil
 }
 
 // GetMidPrice 获取中间价
 func (s *SDK) GetMidPrice(tokenID string) (decimal.Decimal, error) {
-	ob, err := s.getOrderBook(tokenID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
 	if err != nil {
 		return decimal.Zero, err
-	}
-
-	if !ob.IsInitialized() {
-		return decimal.Zero, ErrNotInitialized
 	}
 
 	result := ob.GetMidPrice()
@@ -166,13 +202,12 @@ func (s *SDK) GetMidPrice(tokenID string) (decimal.Decimal, error) {
 
 // GetSpread 获取价差
 func (s *SDK) GetSpread(tokenID string) (decimal.Decimal, error) {
-	ob, err := s.getOrderBook(tokenID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
 	if err != nil {
 		return decimal.Zero, err
-	}
-
-	if !ob.IsInitialized() {
-		return decimal.Zero, ErrNotInitialized
 	}
 
 	result := ob.GetSpread()
@@ -185,22 +220,28 @@ func (s *SDK) GetSpread(tokenID string) (decimal.Decimal, error) {
 
 // GetDepth 获取指定深度的订单簿
 func (s *SDK) GetDepth(tokenID string, depth int) (bids []OrderSummary, asks []OrderSummary, err error) {
-	ob, err := s.getOrderBook(tokenID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if !ob.IsInitialized() {
+	bids, asks = ob.GetDepth(depth)
+	if bids == nil && asks == nil {
 		return nil, nil, ErrNotInitialized
 	}
 
-	bids, asks = ob.GetDepth(depth)
 	return bids, asks, nil
 }
 
 // GetTotalBidSize 获取买单总量
 func (s *SDK) GetTotalBidSize(tokenID string) (decimal.Decimal, error) {
-	ob, err := s.getOrderBook(tokenID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
 	if err != nil {
 		return decimal.Zero, err
 	}
@@ -214,7 +255,10 @@ func (s *SDK) GetTotalBidSize(tokenID string) (decimal.Decimal, error) {
 
 // GetTotalAskSize 获取卖单总量
 func (s *SDK) GetTotalAskSize(tokenID string) (decimal.Decimal, error) {
-	ob, err := s.getOrderBook(tokenID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
 	if err != nil {
 		return decimal.Zero, err
 	}
@@ -228,42 +272,49 @@ func (s *SDK) GetTotalAskSize(tokenID string) (decimal.Decimal, error) {
 
 // GetAllAsks 获取所有卖单（按价格升序）
 func (s *SDK) GetAllAsks(tokenID string) ([]OrderSummary, error) {
-	ob, err := s.getOrderBook(tokenID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
 	if err != nil {
 		return nil, err
 	}
 
-	if !ob.IsInitialized() {
+	result := ob.GetAllAsks()
+	if result == nil {
 		return nil, ErrNotInitialized
 	}
 
-	return ob.GetAllAsks(), nil
+	return result, nil
 }
 
 // GetAllBids 获取所有买单（按价格降序）
 func (s *SDK) GetAllBids(tokenID string) ([]OrderSummary, error) {
-	ob, err := s.getOrderBook(tokenID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
 	if err != nil {
 		return nil, err
 	}
 
-	if !ob.IsInitialized() {
+	result := ob.GetAllBids()
+	if result == nil {
 		return nil, ErrNotInitialized
 	}
 
-	return ob.GetAllBids(), nil
+	return result, nil
 }
 
 // ScanAsksBelow 扫描价格低于等于 maxPrice 的所有卖单
 // 返回可成交的订单列表 + 总数量 + 加权平均价格
 func (s *SDK) ScanAsksBelow(tokenID string, maxPrice decimal.Decimal) (*ScanResult, error) {
-	ob, err := s.getOrderBook(tokenID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
 	if err != nil {
 		return nil, err
-	}
-
-	if !ob.IsInitialized() {
-		return nil, ErrNotInitialized
 	}
 
 	result := ob.ScanAsksBelow(maxPrice)
@@ -277,13 +328,12 @@ func (s *SDK) ScanAsksBelow(tokenID string, maxPrice decimal.Decimal) (*ScanResu
 // ScanBidsAbove 扫描价格高于等于 minPrice 的所有买单
 // 返回可成交的订单列表 + 总数量 + 加权平均价格
 func (s *SDK) ScanBidsAbove(tokenID string, minPrice decimal.Decimal) (*ScanResult, error) {
-	ob, err := s.getOrderBook(tokenID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
 	if err != nil {
 		return nil, err
-	}
-
-	if !ob.IsInitialized() {
-		return nil, ErrNotInitialized
 	}
 
 	result := ob.ScanBidsAbove(minPrice)
@@ -296,7 +346,10 @@ func (s *SDK) ScanBidsAbove(tokenID string, minPrice decimal.Decimal) (*ScanResu
 
 // GetOrderBookTimestamp 获取订单簿最后更新时间戳
 func (s *SDK) GetOrderBookTimestamp(tokenID string) (int64, error) {
-	ob, err := s.getOrderBook(tokenID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
 	if err != nil {
 		return 0, err
 	}
@@ -310,7 +363,10 @@ func (s *SDK) GetOrderBookTimestamp(tokenID string) (int64, error) {
 
 // GetOrderBookHash 获取订单簿hash
 func (s *SDK) GetOrderBookHash(tokenID string) (string, error) {
-	ob, err := s.getOrderBook(tokenID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
 	if err != nil {
 		return "", err
 	}
