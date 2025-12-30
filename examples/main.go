@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/houjie/polymarket-sdk/orderbook"
@@ -64,31 +65,21 @@ func main() {
 		}
 
 		for range updates {
-			//if update.EventType == "price_change" {
-			//	log.Println("price_change")
-			//}
-			//if update.EventType == "book" {
-			//	log.Println("book")
-			//}
-			//log.Printf("OrderBook updated: token=%s, event=%s, timestamp=%d",
-			//	update.TokenID, update.EventType, update.Timestamp)
-
-			// 在收到更新后查询订单簿信息
 			printOrderBookInfo(sdk, tokenIDs)
 		}
 	}()
 
 	// 等待初始化完成
-	//log.Println("Waiting for orderbooks to initialize...")
-	//for !sdk.IsAllInitialized() {
-	//	time.Sleep(100 * time.Millisecond)
-	//}
-	//log.Println("All orderbooks initialized")
-	//
-	//// 演示各种API调用
-	//for _, tokenID := range tokenIDs {
-	//	demonstrateAPI(sdk, tokenID)
-	//}
+	log.Println("Waiting for orderbooks to initialize...")
+	for !sdk.IsAllInitialized() {
+		time.Sleep(100 * time.Millisecond)
+	}
+	log.Println("All orderbooks initialized")
+
+	// 演示各种API调用
+	for _, tokenID := range tokenIDs {
+		demonstrateAPI(sdk, tokenID)
+	}
 
 	// 优雅关闭
 	sigChan := make(chan os.Signal, 1)
