@@ -10,7 +10,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/houjie/polymarket-sdk/orderbook"
+	"github.com/binary-jerry/polymarket-sdk/orderbook"
 	"github.com/shopspring/decimal"
 )
 

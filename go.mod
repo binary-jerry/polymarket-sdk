@@ -1,4 +1,4 @@
-module github.com/houjie/polymarket-sdk
+module github.com/binary-jerry/polymarket-sdk
 
 go 1.23.0
 
