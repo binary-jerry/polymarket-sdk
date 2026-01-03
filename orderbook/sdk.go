@@ -377,3 +377,24 @@ func (s *SDK) GetOrderBookHash(tokenID string) (string, error) {
 
 	return ob.Hash(), nil
 }
+
+// SimulateBuyAsks 模拟买入卖单（吃单）
+// 根据所需数量，从最优卖价开始累加，计算加权平均成交价格
+// requiredSize: 需要买入的数量
+// 返回: 成交结果，包含加权平均价格和是否能完全成交
+func (s *SDK) SimulateBuyAsks(tokenID string, requiredSize decimal.Decimal) (*FillResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ob, err := s.getOrderBookLocked(tokenID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := ob.SimulateBuyAsks(requiredSize)
+	if result == nil {
+		return nil, ErrNotInitialized
+	}
+
+	return result, nil
+}

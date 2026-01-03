@@ -518,3 +518,69 @@ func (ob *OrderBook) ScanBidsAbove(minPrice decimal.Decimal) *ScanResult {
 
 	return result
 }
+
+// FillResult 吃单结果
+type FillResult struct {
+	Orders      []OrderSummary  // 成交的订单列表
+	FilledSize  decimal.Decimal // 实际成交数量
+	TotalCost   decimal.Decimal // 总花费 (价格 * 数量 的累加)
+	AvgPrice    decimal.Decimal // 加权平均价格
+	IsFullFill  bool            // 是否完全成交
+	RemainSize  decimal.Decimal // 剩余未成交数量
+}
+
+// SimulateBuyAsks 模拟买入卖单（吃单）
+// 根据所需数量，从最优卖价开始累加，计算加权平均成交价格
+// requiredSize: 需要买入的数量
+// 返回: 成交结果，包含加权平均价格和是否能完全成交
+func (ob *OrderBook) SimulateBuyAsks(requiredSize decimal.Decimal) *FillResult {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+
+	if !ob.initialized {
+		return nil
+	}
+
+	ob.rebuildSortedAsks()
+
+	result := &FillResult{
+		Orders:     make([]OrderSummary, 0),
+		FilledSize: decimal.Zero,
+		TotalCost:  decimal.Zero,
+		AvgPrice:   decimal.Zero,
+		IsFullFill: false,
+		RemainSize: requiredSize,
+	}
+
+	remaining := requiredSize
+
+	for _, order := range ob.sortedAsks {
+		if remaining.LessThanOrEqual(decimal.Zero) {
+			break
+		}
+
+		// 计算本档位可成交数量
+		fillSize := order.Size
+		if fillSize.GreaterThan(remaining) {
+			fillSize = remaining
+		}
+
+		// 记录成交
+		result.Orders = append(result.Orders, OrderSummary{
+			Price: order.Price,
+			Size:  fillSize,
+		})
+		result.FilledSize = result.FilledSize.Add(fillSize)
+		result.TotalCost = result.TotalCost.Add(order.Price.Mul(fillSize))
+		remaining = remaining.Sub(fillSize)
+	}
+
+	result.RemainSize = remaining
+	result.IsFullFill = remaining.LessThanOrEqual(decimal.Zero)
+
+	if result.FilledSize.IsPositive() {
+		result.AvgPrice = result.TotalCost.Div(result.FilledSize)
+	}
+
+	return result
+}
