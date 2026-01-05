@@ -186,3 +186,37 @@ NegRisk 市场使用不同的合约地址：
 2. **USDC 精度**: USDC 使用 6 位小数（`Decimal6 = 1000000`）
 3. **API 凭证**: 首次使用需要调用 `CreateOrDeriveAPICredentials()` 获取凭证
 4. **订单类型**: 支持 GTC、GTD、FOK、FAK 四种订单类型
+
+## OrderBook 数据一致性保障
+
+### 初始化机制
+- **initialized 状态**: 订单簿需要收到快照后才标记为已初始化
+- **pendingChanges 缓冲**: 在快照到达前的增量更新会被缓冲，快照后按序列号重放
+- **序列号检查**: 只接受比当前序列号更新的增量更新
+
+### 重连处理
+- 断开连接时自动清空所有订单簿数据
+- 重连后重新订阅并等待新快照
+- 防止混合新旧数据导致不一致
+
+### 获取订单簿数据
+```go
+// 获取完整深度（从内存）
+bids, asks, err := sdk.OrderBook.GetDepth(tokenID, 50)
+
+// 获取所有买单/卖单
+allBids, err := sdk.OrderBook.GetAllBids(tokenID)
+allAsks, err := sdk.OrderBook.GetAllAsks(tokenID)
+
+// 扫描特定价格范围
+scanResult, err := sdk.OrderBook.ScanAsksBelow(tokenID, maxPrice)
+scanResult, err := sdk.OrderBook.ScanBidsAbove(tokenID, minPrice)
+
+// 模拟成交计算加权平均价格
+fillResult, err := sdk.OrderBook.SimulateBuyAsks(tokenID, requiredSize)
+```
+
+### 重要提醒
+- **始终从 SDK 内存获取订单簿**: 使用 `GetDepth`/`GetAllBids`/`GetAllAsks`，不要调用 REST API
+- **检查初始化状态**: 使用前调用 `IsInitialized(tokenID)` 确认订单簿已就绪
+- **处理深度而非仅 BBO**: 套利计算应考虑完整深度，使用 `ScanAsksBelow`/`ScanBidsAbove`

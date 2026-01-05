@@ -17,6 +17,9 @@ type Manager struct {
 	// tokenID -> OrderBook
 	orderBooks map[string]*OrderBook
 
+	// 已订阅的 token 集合
+	subscribedTokens map[string]bool
+
 	// 更新通知channel
 	updateChan chan OrderBookUpdate
 
@@ -41,48 +44,133 @@ func NewManager(config *Config) *Manager {
 	}
 
 	m := &Manager{
-		config:         config,
-		orderBooks:     make(map[string]*OrderBook),
-		updateChan:     make(chan OrderBookUpdate, config.UpdateChannelSize),
-		pendingChanges: make(map[string][]*pendingPriceChange),
-		closeChan:      make(chan struct{}),
+		config:           config,
+		orderBooks:       make(map[string]*OrderBook),
+		subscribedTokens: make(map[string]bool),
+		updateChan:       make(chan OrderBookUpdate, config.UpdateChannelSize),
+		pendingChanges:   make(map[string][]*pendingPriceChange),
+		closeChan:        make(chan struct{}),
 	}
 
 	return m
 }
 
-// Subscribe 订阅token列表
+// Connect 建立 WebSocket 连接（不订阅任何 token）
+// 这是 "Connect first, Subscribe later" 模式的第一步
+func (m *Manager) Connect() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// 如果连接池不存在，创建并设置回调
+	if m.pool == nil {
+		m.pool = NewWSPool(m.config)
+
+		// 设置消息处理回调
+		m.pool.SetMessageHandler(m.handleMessage)
+
+		// 设置状态变更回调
+		m.pool.SetStateChangeHandler(func(clientID string, state ConnectionState) {
+			log.Printf("[Manager] client %s state changed to %s", clientID, state)
+
+			// 如果断开连接，清除相关订单簿的初始化状态
+			if state == StateReconnecting || state == StateDisconnected {
+				m.handleClientDisconnect(clientID)
+			}
+		})
+	}
+
+	// 建立连接
+	return m.pool.Connect()
+}
+
+// IsConnected 检查是否已连接
+func (m *Manager) IsConnected() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.pool == nil {
+		return false
+	}
+	return m.pool.IsConnected()
+}
+
+// Subscribe 订阅token列表（支持增量订阅）
 func (m *Manager) Subscribe(tokenIDs []string) error {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	// 初始化订单簿
+	// 过滤出新的 token（未订阅过的）
+	newTokens := make([]string, 0)
 	for _, tokenID := range tokenIDs {
+		if !m.subscribedTokens[tokenID] {
+			newTokens = append(newTokens, tokenID)
+			m.subscribedTokens[tokenID] = true
+		}
+	}
+
+	// 如果没有新 token，直接返回
+	if len(newTokens) == 0 {
+		return nil
+	}
+
+	// 初始化新 token 的订单簿
+	for _, tokenID := range newTokens {
 		if _, exists := m.orderBooks[tokenID]; !exists {
 			m.orderBooks[tokenID] = NewOrderBook(tokenID)
 			m.pendingChanges[tokenID] = make([]*pendingPriceChange, 0)
 		}
 	}
 
-	m.mu.Unlock()
+	// 如果连接池不存在，创建并设置回调
+	if m.pool == nil {
+		m.pool = NewWSPool(m.config)
 
-	// 创建连接池
-	m.pool = NewWSPool(m.config)
+		// 设置消息处理回调
+		m.pool.SetMessageHandler(m.handleMessage)
 
-	// 设置消息处理回调
-	m.pool.SetMessageHandler(m.handleMessage)
+		// 设置状态变更回调
+		m.pool.SetStateChangeHandler(func(clientID string, state ConnectionState) {
+			log.Printf("[Manager] client %s state changed to %s", clientID, state)
 
-	// 设置状态变更回调
-	m.pool.SetStateChangeHandler(func(clientID string, state ConnectionState) {
-		log.Printf("[Manager] client %s state changed to %s", clientID, state)
+			// 如果断开连接，清除相关订单簿的初始化状态
+			if state == StateReconnecting || state == StateDisconnected {
+				m.handleClientDisconnect(clientID)
+			}
+		})
+	}
 
-		// 如果断开连接，清除相关订单簿的初始化状态
-		if state == StateReconnecting || state == StateDisconnected {
-			m.handleClientDisconnect(clientID)
-		}
-	})
+	// 向连接池添加订阅
+	return m.pool.Subscribe(newTokens)
+}
 
-	// 建立连接并订阅
-	return m.pool.Subscribe(tokenIDs)
+// Unsubscribe 取消订阅指定的 token
+func (m *Manager) Unsubscribe(tokenIDs []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, tokenID := range tokenIDs {
+		delete(m.subscribedTokens, tokenID)
+		delete(m.orderBooks, tokenID)
+		delete(m.pendingChanges, tokenID)
+	}
+
+	if m.pool != nil {
+		return m.pool.Unsubscribe(tokenIDs)
+	}
+
+	return nil
+}
+
+// GetSubscribedTokens 获取已订阅的 token 列表
+func (m *Manager) GetSubscribedTokens() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	tokens := make([]string, 0, len(m.subscribedTokens))
+	for tokenID := range m.subscribedTokens {
+		tokens = append(tokens, tokenID)
+	}
+	return tokens
 }
 
 // handleClientDisconnect 处理客户端断开连接

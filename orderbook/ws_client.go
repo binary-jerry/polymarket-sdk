@@ -3,6 +3,7 @@ package orderbook
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math/rand"
 	"sync"
@@ -101,7 +102,7 @@ func (c *WSClient) setState(state ConnectionState) {
 	}
 }
 
-// Connect 建立连接
+// Connect 建立连接（不发送订阅消息）
 func (c *WSClient) Connect() error {
 	// 先停止旧的 goroutine
 	c.stopLoops()
@@ -141,34 +142,30 @@ func (c *WSClient) Connect() error {
 	go c.writeLoop()
 	go c.heartbeatLoop()
 
-	// 发送订阅请求
-	if err := c.subscribe(); err != nil {
-		c.stopLoops()
-		c.closeConnection()
-		return err
+	// 如果有初始 token，立即订阅
+	if len(c.tokenIDs) > 0 {
+		if err := c.sendSubscribe(c.tokenIDs); err != nil {
+			c.stopLoops()
+			c.closeConnection()
+			return err
+		}
 	}
+
+	c.setState(StateActive)
+	atomic.StoreInt32(&c.reconnectAttempts, 0)
+	atomic.StoreInt32(&c.reconnecting, 0)
 
 	return nil
 }
 
-// stopLoops 停止所有循环 goroutine
-func (c *WSClient) stopLoops() {
-	c.mu.Lock()
-	if c.loopCancel != nil {
-		c.loopCancel()
+// sendSubscribe 发送订阅请求
+func (c *WSClient) sendSubscribe(tokenIDs []string) error {
+	if len(tokenIDs) == 0 {
+		return nil
 	}
-	c.mu.Unlock()
-
-	// 等待所有 goroutine 退出
-	c.loopWg.Wait()
-}
-
-// subscribe 发送订阅请求
-func (c *WSClient) subscribe() error {
-	c.setState(StateSubscribing)
 
 	req := SubscribeRequest{
-		AssetsIDs: c.tokenIDs,
+		AssetsIDs: tokenIDs,
 		Type:      "market",
 	}
 
@@ -183,9 +180,6 @@ func (c *WSClient) subscribe() error {
 
 	select {
 	case c.writeChan <- data:
-		c.setState(StateActive)
-		atomic.StoreInt32(&c.reconnectAttempts, 0)
-		atomic.StoreInt32(&c.reconnecting, 0)
 		return nil
 	case <-c.ctx.Done():
 		return c.ctx.Err()
@@ -194,6 +188,18 @@ func (c *WSClient) subscribe() error {
 	case <-time.After(5 * time.Second):
 		return context.DeadlineExceeded
 	}
+}
+
+// stopLoops 停止所有循环 goroutine
+func (c *WSClient) stopLoops() {
+	c.mu.Lock()
+	if c.loopCancel != nil {
+		c.loopCancel()
+	}
+	c.mu.Unlock()
+
+	// 等待所有 goroutine 退出
+	c.loopWg.Wait()
 }
 
 // readLoop 读取消息循环
@@ -475,5 +481,48 @@ func (c *WSClient) ID() string {
 
 // TokenIDs 获取订阅的token列表
 func (c *WSClient) TokenIDs() []string {
-	return c.tokenIDs
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	result := make([]string, len(c.tokenIDs))
+	copy(result, c.tokenIDs)
+	return result
+}
+
+// AddTokens 动态添加新的 token 订阅
+func (c *WSClient) AddTokens(tokenIDs []string) error {
+	c.mu.Lock()
+	// 检查连接状态
+	if c.state != StateActive && c.state != StateConnected {
+		c.mu.Unlock()
+		return fmt.Errorf("client not active, current state: %s", c.state)
+	}
+
+	// 添加到 token 列表
+	c.tokenIDs = append(c.tokenIDs, tokenIDs...)
+	c.mu.Unlock()
+
+	// 发送订阅请求
+	return c.sendSubscribe(tokenIDs)
+}
+
+// RemoveTokens 从订阅列表中移除 token
+// 注意：Polymarket WebSocket 协议可能不支持取消订阅，这里只从本地列表移除
+func (c *WSClient) RemoveTokens(tokenIDs []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// 创建要移除的 token 集合
+	toRemove := make(map[string]bool)
+	for _, tokenID := range tokenIDs {
+		toRemove[tokenID] = true
+	}
+
+	// 过滤 token 列表
+	newTokenIDs := make([]string, 0, len(c.tokenIDs))
+	for _, tokenID := range c.tokenIDs {
+		if !toRemove[tokenID] {
+			newTokenIDs = append(newTokenIDs, tokenID)
+		}
+	}
+	c.tokenIDs = newTokenIDs
 }

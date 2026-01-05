@@ -1,6 +1,7 @@
 package orderbook
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -12,7 +13,7 @@ var (
 	ErrNotInitialized = errors.New("orderbook not initialized")
 	ErrTokenNotFound  = errors.New("token not found")
 	ErrNoData         = errors.New("no data available")
-	ErrAlreadyStarted = errors.New("sdk already started")
+	ErrNotStarted     = errors.New("sdk not started, call Start first")
 )
 
 // SDK 订单簿SDK对外接口
@@ -21,6 +22,8 @@ type SDK struct {
 	manager *Manager
 	config  *Config
 	started bool
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
 // NewSDK 创建新的SDK实例
@@ -34,27 +37,61 @@ func NewSDK(config *Config) *SDK {
 	}
 }
 
-// Subscribe 订阅token列表
-func (s *SDK) Subscribe(tokenIDs []string) error {
+// Start 启动 SDK，建立 WebSocket 连接
+// 必须在 Subscribe 之前调用
+// 遵循 "Connect first, Subscribe later" 模式
+func (s *SDK) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.started {
-		return ErrAlreadyStarted
+		return nil // 已经启动，幂等操作
+	}
+
+	s.ctx, s.cancel = context.WithCancel(ctx)
+	s.manager = NewManager(s.config)
+
+	// 建立 WebSocket 连接（像 Opinion SDK 那样）
+	if err := s.manager.Connect(); err != nil {
+		return err
+	}
+
+	s.started = true
+
+	return nil
+}
+
+// Subscribe 订阅token列表（支持增量订阅）
+// 可以多次调用，每次添加新的 token 到订阅列表
+func (s *SDK) Subscribe(tokenIDs []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.started {
+		return ErrNotStarted
 	}
 
 	if len(tokenIDs) == 0 {
 		return errors.New("tokenIDs cannot be empty")
 	}
 
-	s.manager = NewManager(s.config)
 	if err := s.manager.Subscribe(tokenIDs); err != nil {
-		s.manager = nil
 		return err
 	}
 
-	s.started = true
 	return nil
+}
+
+// Unsubscribe 取消订阅指定的 token
+func (s *SDK) Unsubscribe(tokenIDs []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.started {
+		return ErrNotStarted
+	}
+
+	return s.manager.Unsubscribe(tokenIDs)
 }
 
 // Updates 获取更新通知channel
@@ -73,11 +110,22 @@ func (s *SDK) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.cancel != nil {
+		s.cancel()
+	}
+
 	if s.manager != nil {
 		s.manager.Close()
 		s.manager = nil
 	}
 	s.started = false
+}
+
+// IsStarted 检查 SDK 是否已启动
+func (s *SDK) IsStarted() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.started
 }
 
 // IsInitialized 检查指定token的订单簿是否已初始化
@@ -113,10 +161,21 @@ func (s *SDK) GetConnectionStatus() map[string]ConnectionState {
 	return s.manager.GetConnectionStatus()
 }
 
+// GetSubscribedTokens 获取已订阅的 token 列表
+func (s *SDK) GetSubscribedTokens() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.manager == nil {
+		return nil
+	}
+	return s.manager.GetSubscribedTokens()
+}
+
 // getOrderBook 获取订单簿（内部方法，调用者需持有读锁）
 func (s *SDK) getOrderBookLocked(tokenID string) (*OrderBook, error) {
 	if s.manager == nil {
-		return nil, errors.New("sdk not initialized, call Subscribe first")
+		return nil, ErrNotStarted
 	}
 
 	ob := s.manager.GetOrderBook(tokenID)
