@@ -17,53 +17,53 @@ type Market struct {
 	ConditionID string `json:"conditionId"`
 
 	// Token 信息
-	Tokens            []Token  `json:"tokens"`
-	Outcomes          string   `json:"outcomes"`      // "Yes,No" 格式
-	OutcomePrices     string   `json:"outcomePrices"` // "0.5,0.5" 格式
-	ClobTokenIds      string   `json:"clobTokenIds"`  // token IDs 逗号分隔
+	Tokens        []Token `json:"tokens"`
+	Outcomes      string  `json:"outcomes"`      // "Yes,No" 格式
+	OutcomePrices string  `json:"outcomePrices"` // "0.5,0.5" 格式
+	ClobTokenIds  string  `json:"clobTokenIds"`  // token IDs 逗号分隔
 
 	// 状态
-	Active          bool   `json:"active"`
-	Closed          bool   `json:"closed"`
-	Archived        bool   `json:"archived"`
-	AcceptingOrders bool   `json:"acceptingOrders"`
-	EnableOrderBook bool   `json:"enableOrderBook"`
-	New             bool   `json:"new"`
-	Featured        bool   `json:"featured"`
+	Active          bool `json:"active"`
+	Closed          bool `json:"closed"`
+	Archived        bool `json:"archived"`
+	AcceptingOrders bool `json:"acceptingOrders"`
+	EnableOrderBook bool `json:"enableOrderBook"`
+	New             bool `json:"new"`
+	Featured        bool `json:"featured"`
 
 	// 价格和流动性
-	Volume       string `json:"volume"`
-	Liquidity    string `json:"liquidity"`
+	Volume       string  `json:"volume"`
+	Liquidity    string  `json:"liquidity"`
 	Volume24hr   float64 `json:"volume24hr"`
 	VolumeNum    float64 `json:"volumeNum"`
 	LiquidityNum float64 `json:"liquidityNum"`
 
 	// 价格变动
-	OneDayPriceChange   float64 `json:"oneDayPriceChange"`
-	OneHourPriceChange  float64 `json:"oneHourPriceChange"`
-	OneWeekPriceChange  float64 `json:"oneWeekPriceChange"`
+	OneDayPriceChange  float64 `json:"oneDayPriceChange"`
+	OneHourPriceChange float64 `json:"oneHourPriceChange"`
+	OneWeekPriceChange float64 `json:"oneWeekPriceChange"`
 
 	// 订单配置
 	OrderPriceMinTickSize float64 `json:"orderPriceMinTickSize"`
 	OrderMinSize          float64 `json:"orderMinSize"`
 
 	// 时间
-	EndDate     string `json:"endDate"`
-	EndDateIso  string `json:"endDateIso"`
-	StartDate   string `json:"startDate,omitempty"`
+	EndDate      string `json:"endDate"`
+	EndDateIso   string `json:"endDateIso"`
+	StartDate    string `json:"startDate,omitempty"`
 	StartDateIso string `json:"startDateIso,omitempty"`
-	CreatedAt   string `json:"createdAt,omitempty"`
-	UpdatedAt   string `json:"updatedAt,omitempty"`
+	CreatedAt    string `json:"createdAt,omitempty"`
+	UpdatedAt    string `json:"updatedAt,omitempty"`
 
 	// 分类
-	Category    string   `json:"category"`
-	Tags        []Tag    `json:"tags,omitempty"`
+	Category string `json:"category"`
+	Tags     []Tag  `json:"tags,omitempty"`
 
 	// 市场类型
-	MarketType  string `json:"marketType"`  // "binary" 等
-	NegRisk     bool   `json:"negRisk"`
-	NegRiskMarketID   string `json:"negRiskMarketId,omitempty"`
-	NegRiskRequestID  string `json:"negRiskRequestId,omitempty"`
+	MarketType       string `json:"marketType"` // "binary" 等
+	NegRisk          bool   `json:"negRisk"`
+	NegRiskMarketID  string `json:"negRiskMarketId,omitempty"`
+	NegRiskRequestID string `json:"negRiskRequestId,omitempty"`
 
 	// 解析相关
 	ResolutionSource string `json:"resolutionSource"`
@@ -75,19 +75,19 @@ type Market struct {
 	TwitterCardImage string `json:"twitterCardImage,omitempty"`
 
 	// 其他
-	Fee              string `json:"fee,omitempty"`
-	Spread           float64 `json:"spread,omitempty"`
-	BestBid          float64 `json:"bestBid,omitempty"`
-	BestAsk          float64 `json:"bestAsk,omitempty"`
-	LastTradePrice   float64 `json:"lastTradePrice,omitempty"`
+	Fee            string  `json:"fee,omitempty"`
+	Spread         float64 `json:"spread,omitempty"`
+	BestBid        float64 `json:"bestBid,omitempty"`
+	BestAsk        float64 `json:"bestAsk,omitempty"`
+	LastTradePrice float64 `json:"lastTradePrice,omitempty"`
 }
 
 // Token 代币信息
 type Token struct {
-	TokenID  string `json:"token_id"`
-	Outcome  string `json:"outcome"`  // "Yes" 或 "No"
-	Price    string `json:"price,omitempty"`
-	Winner   bool   `json:"winner"`
+	TokenID string `json:"token_id"`
+	Outcome string `json:"outcome"` // "Yes" 或 "No"
+	Price   string `json:"price,omitempty"`
+	Winner  bool   `json:"winner"`
 }
 
 // Tag 标签信息
@@ -101,26 +101,27 @@ type Tag struct {
 
 // MarketListParams 市场列表查询参数
 type MarketListParams struct {
-	Limit        int    `url:"limit,omitempty"`
-	Offset       int    `url:"offset,omitempty"`
-	NextCursor   string `url:"next_cursor,omitempty"`
+	Limit      int    `url:"limit,omitempty"`
+	Offset     int    `url:"offset,omitempty"`
+	NextCursor string `url:"next_cursor,omitempty"`
 
 	// 筛选条件
-	Active       *bool  `url:"active,omitempty"`
-	Closed       *bool  `url:"closed,omitempty"`
-	Archived     *bool  `url:"archived,omitempty"`
-	New          *bool  `url:"new,omitempty"`
-	Featured     *bool  `url:"featured,omitempty"`
-	NegRisk      *bool  `url:"neg_risk,omitempty"`
+	Active   *bool `url:"active,omitempty"`
+	Closed   *bool `url:"closed,omitempty"`
+	Archived *bool `url:"archived,omitempty"`
+	New      *bool `url:"new,omitempty"`
+	Featured *bool `url:"featured,omitempty"`
+	NegRisk  *bool `url:"neg_risk,omitempty"`
 
 	// 分类筛选
-	Slug         string `url:"slug,omitempty"`       // 市场 slug
-	TagSlug      string `url:"tag_slug,omitempty"`   // 标签 slug
-	Category     string `url:"category,omitempty"`
+	Slug     string `url:"slug,omitempty"`     // 市场 slug
+	TagSlug  string `url:"tag_slug,omitempty"` // 标签 slug
+	Category string `url:"category,omitempty"`
 
 	// 排序
-	Order        string `url:"order,omitempty"`      // volume, liquidity, end_date_min, created_at
-	Ascending    bool   `url:"ascending,omitempty"`
+	Order     string `url:"order,omitempty"` // volume, liquidity, end_date_min, created_at
+	Ascending bool   `url:"ascending,omitempty"`
+	TagId     int    `url:"tag_id,omitempty"`
 
 	// 时间筛选
 	StartDateMin string `url:"start_date_min,omitempty"`
@@ -129,7 +130,7 @@ type MarketListParams struct {
 	EndDateMax   string `url:"end_date_max,omitempty"`
 
 	// 搜索
-	TextQuery    string `url:"text_query,omitempty"` // 文本搜索
+	TextQuery string `url:"text_query,omitempty"` // 文本搜索
 }
 
 // MarketListResponse 市场列表响应
