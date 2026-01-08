@@ -24,6 +24,7 @@ func (c *Client) GetMarkets(ctx context.Context, params *MarketListParams) (*Mar
 }
 
 // GetAllMarkets 获取所有市场（自动分页）
+// Polymarket API 的 offset 是跳过的记录数，从 0 开始
 func (c *Client) GetAllMarkets(ctx context.Context, params *MarketListParams) ([]Market, error) {
 	if params == nil {
 		params = &MarketListParams{}
@@ -34,7 +35,7 @@ func (c *Client) GetAllMarkets(ctx context.Context, params *MarketListParams) ([
 	}
 
 	var allMarkets []Market
-	offset := 0
+	offset := 0 // offset 是跳过的记录数，从 0 开始
 
 	for {
 		params.Offset = offset
@@ -53,7 +54,7 @@ func (c *Client) GetAllMarkets(ctx context.Context, params *MarketListParams) ([
 			break
 		}
 
-		offset += params.Limit
+		offset += params.Limit // 每次跳过 limit 条记录
 
 		// 安全限制：最多获取 10000 个市场
 		if len(allMarkets) >= 10000 {

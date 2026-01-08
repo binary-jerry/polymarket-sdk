@@ -101,9 +101,8 @@ type Tag struct {
 
 // MarketListParams 市场列表查询参数
 type MarketListParams struct {
-	Limit      int    `url:"limit,omitempty"`
-	Offset     int    `url:"offset,omitempty"`
-	NextCursor string `url:"next_cursor,omitempty"`
+	Limit  int `url:"limit,omitempty"`
+	Offset int `url:"offset,omitempty"`
 
 	// 筛选条件
 	Active   *bool `url:"active,omitempty"`
@@ -131,6 +130,7 @@ type MarketListParams struct {
 
 	// 搜索
 	TextQuery string `url:"text_query,omitempty"` // 文本搜索
+	Id        int    `url:"id,omitempty"`
 }
 
 // MarketListResponse 市场列表响应

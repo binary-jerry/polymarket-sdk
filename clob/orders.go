@@ -313,3 +313,135 @@ func (c *Client) CancelAllOrders(ctx context.Context) error {
 
 	return nil
 }
+
+// PreSignedOrder 预签名订单（包含签名后的订单和提交请求）
+type PreSignedOrder struct {
+	SignedOrder *SignedOrder     // 已签名的订单
+	PostRequest *PostOrderRequest // 提交请求体
+	Request     *CreateOrderRequest // 原始请求（用于参考）
+}
+
+// CreatePreSignedOrder 创建预签名订单（不提交）
+// 返回预签名订单，可以在之后快速提交
+func (c *Client) CreatePreSignedOrder(req *CreateOrderRequest) (*PreSignedOrder, error) {
+	// 创建已签名订单
+	signedOrder, err := c.orderSigner.CreateSignedOrder(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create signed order: %w", err)
+	}
+
+	// 确定订单类型
+	orderType := req.Type
+	if orderType == "" {
+		orderType = OrderTypeGTC
+	}
+
+	// 构建提交请求
+	postReq := &PostOrderRequest{
+		Order:     signedOrder,
+		Owner:     c.GetAddress(),
+		OrderType: orderType,
+	}
+
+	return &PreSignedOrder{
+		SignedOrder: signedOrder,
+		PostRequest: postReq,
+		Request:     req,
+	}, nil
+}
+
+// SubmitPreSignedOrder 提交预签名订单
+// 使用之前创建的预签名订单快速提交，节省签名时间
+func (c *Client) SubmitPreSignedOrder(ctx context.Context, preSignedOrder *PreSignedOrder) (*OrderResponse, error) {
+	if preSignedOrder == nil || preSignedOrder.PostRequest == nil {
+		return nil, fmt.Errorf("invalid pre-signed order")
+	}
+
+	if err := c.ensureCredentials(ctx); err != nil {
+		return nil, fmt.Errorf("failed to ensure credentials: %w", err)
+	}
+
+	// 序列化请求体
+	bodyBytes, err := json.Marshal(preSignedOrder.PostRequest)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// 获取认证头
+	authHeaders, err := c.getL2AuthHeaders("POST", "/order", string(bodyBytes))
+	if err != nil {
+		return nil, err
+	}
+
+	// 发送请求
+	var result OrderResponse
+	err = c.httpClient.DoWithAuth(ctx, "POST", "/order", preSignedOrder.PostRequest, authHeaders, &result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to submit pre-signed order: %w", err)
+	}
+
+	return &result, nil
+}
+
+// CreatePreSignedOrders 批量创建预签名订单（不提交）
+func (c *Client) CreatePreSignedOrders(reqs []*CreateOrderRequest) ([]*PreSignedOrder, error) {
+	if len(reqs) == 0 {
+		return nil, nil
+	}
+
+	preSignedOrders := make([]*PreSignedOrder, 0, len(reqs))
+	for _, req := range reqs {
+		preSignedOrder, err := c.CreatePreSignedOrder(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create pre-signed order: %w", err)
+		}
+		preSignedOrders = append(preSignedOrders, preSignedOrder)
+	}
+
+	return preSignedOrders, nil
+}
+
+// SubmitPreSignedOrders 批量提交预签名订单
+func (c *Client) SubmitPreSignedOrders(ctx context.Context, preSignedOrders []*PreSignedOrder) ([]*OrderResponse, error) {
+	if len(preSignedOrders) == 0 {
+		return nil, nil
+	}
+
+	if len(preSignedOrders) > 15 {
+		return nil, fmt.Errorf("maximum 15 orders per batch, got %d", len(preSignedOrders))
+	}
+
+	if err := c.ensureCredentials(ctx); err != nil {
+		return nil, fmt.Errorf("failed to ensure credentials: %w", err)
+	}
+
+	// 提取提交请求
+	postReqs := make([]*PostOrderRequest, 0, len(preSignedOrders))
+	for _, preSignedOrder := range preSignedOrders {
+		if preSignedOrder == nil || preSignedOrder.PostRequest == nil {
+			return nil, fmt.Errorf("invalid pre-signed order in batch")
+		}
+		postReqs = append(postReqs, preSignedOrder.PostRequest)
+	}
+
+	// 序列化请求体
+	bodyBytes, err := json.Marshal(postReqs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// 获取认证头
+	authHeaders, err := c.getL2AuthHeaders("POST", "/orders", string(bodyBytes))
+	if err != nil {
+		return nil, err
+	}
+
+	// 发送请求
+	var results []*OrderResponse
+	err = c.httpClient.DoWithAuth(ctx, "POST", "/orders", postReqs, authHeaders, &results)
+	if err != nil {
+		return nil, fmt.Errorf("failed to submit pre-signed orders: %w", err)
+	}
+
+	return results, nil
+}
