@@ -16,8 +16,17 @@ Polymarket SDK 是一个 Go 语言编写的完整 Polymarket 预测市场 SDK，
 # 构建
 go build ./...
 
-# 运行测试
+# 运行所有测试
 go test ./...
+
+# 运行单个模块测试
+go test ./auth/... -v
+go test ./clob/... -v
+go test ./gamma/... -v
+go test ./orderbook/... -v
+
+# 运行单个测试函数
+go test ./auth/... -v -run TestL1Signer
 
 # 运行测试（带覆盖率）
 go test ./... -cover
@@ -28,6 +37,9 @@ go fmt ./...
 # 检查代码问题
 go vet ./...
 
+# 运行完整示例（订单簿订阅 + 套利检测）
+go run examples/main.go
+
 # 运行市场查询示例
 go run examples/markets/main.go
 
@@ -37,41 +49,13 @@ go run examples/trading/main.go
 
 ## Architecture
 
-### Module Structure
-
-```
-polymarket-sdk/
-├── sdk.go              # 统一 SDK 入口
-├── config.go           # 全局配置和常量
-├── common/             # 公共模块
-│   ├── errors.go       # 统一错误定义
-│   ├── http.go         # HTTP 客户端封装
-│   └── utils.go        # 工具函数
-├── gamma/              # Gamma API（市场数据）
-│   ├── client.go       # Gamma 客户端
-│   ├── markets.go      # 市场查询方法
-│   └── types.go        # 市场数据类型
-├── auth/               # 认证模块
-│   ├── types.go        # 认证类型定义
-│   ├── signer.go       # 签名器接口
-│   ├── l1_signer.go    # L1 EIP-712 签名
-│   ├── l2_signer.go    # L2 HMAC 签名
-│   └── credentials.go  # 凭证管理
-├── clob/               # CLOB 交易模块
-│   ├── client.go       # CLOB 客户端
-│   ├── types.go        # 订单/交易类型
-│   ├── signing.go      # 订单签名
-│   ├── orders.go       # 订单操作
-│   ├── account.go      # 账户查询
-│   └── trades.go       # 交易历史
-├── orderbook/          # 订单簿模块（WebSocket）
-│   ├── sdk.go          # 订单簿 SDK
-│   ├── manager.go      # 订单簿管理器
-│   ├── ws_pool.go      # WebSocket 连接池
-│   ├── ws_client.go    # WebSocket 客户端
-│   └── orderbook.go    # 订单簿数据结构
-└── examples/           # 示例代码
-```
+SDK 采用模块化分层架构，包含 5 个主要模块：
+- `sdk.go` / `config.go` - 统一入口和全局配置
+- `common/` - 公共模块（错误定义、HTTP 客户端、工具函数）
+- `gamma/` - Gamma API（市场数据查询）
+- `auth/` - 认证模块（L1 EIP-712 签名、L2 HMAC 签名）
+- `clob/` - CLOB 交易模块（订单操作、账户查询）
+- `orderbook/` - 订单簿模块（WebSocket 实时订阅）
 
 ### SDK Initialization
 
@@ -150,28 +134,26 @@ sdk, err := polymarket.NewTradingSDK(nil, privateKey, creds)
 | CLOB (Trading) | https://clob.polymarket.com |
 | WebSocket | wss://ws-subscriptions-clob.polymarket.com/ws/market |
 
+## Key Code Paths
+
+| 功能 | 文件位置 |
+|------|---------|
+| SDK 创建入口 | `sdk.go:NewSDK()` |
+| OrderBook WebSocket 消息处理 | `orderbook/manager.go:handleMessage()` |
+| WebSocket 连接管理 | `orderbook/ws_client.go` |
+| 订单簿数据结构 | `orderbook/orderbook.go` |
+| L1 EIP-712 签名 | `auth/l1_signer.go:Sign()` |
+| L2 HMAC 签名 | `auth/l2_signer.go:Sign()` |
+| 订单创建和签名 | `clob/orders.go` / `clob/signing.go` |
+| 市场查询 | `gamma/markets.go` |
+| 错误类型定义 | `common/errors.go` |
+
 ## Dependencies
 
 - `github.com/gorilla/websocket`: WebSocket 客户端
 - `github.com/shopspring/decimal`: 精确十进制运算
 - `github.com/ethereum/go-ethereum`: EIP-712 签名
 - `github.com/google/go-querystring`: URL 参数编码
-
-## Testing
-
-测试覆盖率目标：
-- SDK 入口: >95%
-- common: >85%
-- gamma: >80%
-- auth: >70%
-- clob: >70%
-
-运行特定模块测试：
-```bash
-go test ./auth/... -v
-go test ./clob/... -v
-go test ./gamma/... -v
-```
 
 ## NegRisk Markets
 
