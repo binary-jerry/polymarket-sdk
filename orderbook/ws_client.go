@@ -142,9 +142,9 @@ func (c *WSClient) Connect() error {
 	go c.writeLoop()
 	go c.heartbeatLoop()
 
-	// 如果有初始 token，立即订阅
+	// 如果有初始 token，立即订阅（使用初始订阅格式）
 	if len(c.tokenIDs) > 0 {
-		if err := c.sendSubscribe(c.tokenIDs); err != nil {
+		if err := c.sendInitialSubscribe(c.tokenIDs); err != nil {
 			c.stopLoops()
 			c.closeConnection()
 			return err
@@ -158,15 +158,57 @@ func (c *WSClient) Connect() error {
 	return nil
 }
 
-// sendSubscribe 发送订阅请求
-func (c *WSClient) sendSubscribe(tokenIDs []string) error {
+// sendInitialSubscribe 发送初始订阅请求（连接时使用 type: "MARKET"）
+func (c *WSClient) sendInitialSubscribe(tokenIDs []string) error {
 	if len(tokenIDs) == 0 {
 		return nil
 	}
 
 	req := SubscribeRequest{
 		AssetsIDs: tokenIDs,
-		Type:      "market",
+		Type:      "MARKET",
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+
+	c.mu.RLock()
+	loopCtx := c.loopCtx
+	c.mu.RUnlock()
+
+	select {
+	case c.writeChan <- data:
+		return nil
+	case <-c.ctx.Done():
+		return c.ctx.Err()
+	case <-loopCtx.Done():
+		return loopCtx.Err()
+	case <-time.After(5 * time.Second):
+		return context.DeadlineExceeded
+	}
+}
+
+// sendDynamicSubscribe 发送动态订阅请求（连接后添加订阅使用 operation: "subscribe"）
+func (c *WSClient) sendDynamicSubscribe(tokenIDs []string) error {
+	return c.sendDynamicOperation(tokenIDs, "subscribe")
+}
+
+// sendDynamicUnsubscribe 发送动态取消订阅请求（使用 operation: "unsubscribe"）
+func (c *WSClient) sendDynamicUnsubscribe(tokenIDs []string) error {
+	return c.sendDynamicOperation(tokenIDs, "unsubscribe")
+}
+
+// sendDynamicOperation 发送动态操作请求
+func (c *WSClient) sendDynamicOperation(tokenIDs []string, operation string) error {
+	if len(tokenIDs) == 0 {
+		return nil
+	}
+
+	req := DynamicSubscribeRequest{
+		AssetsIDs: tokenIDs,
+		Operation: operation,
 	}
 
 	data, err := json.Marshal(req)
@@ -501,15 +543,18 @@ func (c *WSClient) AddTokens(tokenIDs []string) error {
 	c.tokenIDs = append(c.tokenIDs, tokenIDs...)
 	c.mu.Unlock()
 
-	// 发送订阅请求
-	return c.sendSubscribe(tokenIDs)
+	// 发送动态订阅请求（使用 operation: "subscribe"）
+	return c.sendDynamicSubscribe(tokenIDs)
 }
 
-// RemoveTokens 从订阅列表中移除 token
-// 注意：Polymarket WebSocket 协议可能不支持取消订阅，这里只从本地列表移除
-func (c *WSClient) RemoveTokens(tokenIDs []string) {
+// RemoveTokens 从订阅列表中移除 token，并发送取消订阅请求
+func (c *WSClient) RemoveTokens(tokenIDs []string) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	// 检查连接状态
+	if c.state != StateActive && c.state != StateConnected {
+		c.mu.Unlock()
+		return fmt.Errorf("client not active, current state: %s", c.state)
+	}
 
 	// 创建要移除的 token 集合
 	toRemove := make(map[string]bool)
@@ -525,4 +570,8 @@ func (c *WSClient) RemoveTokens(tokenIDs []string) {
 		}
 	}
 	c.tokenIDs = newTokenIDs
+	c.mu.Unlock()
+
+	// 发送动态取消订阅请求
+	return c.sendDynamicUnsubscribe(tokenIDs)
 }

@@ -2,6 +2,7 @@ package orderbook
 
 import (
 	"fmt"
+	"log"
 	"sync"
 )
 
@@ -247,7 +248,9 @@ func (p *WSPool) Unsubscribe(tokenIDs []string) error {
 
 	// 通知每个客户端移除 token
 	for client, tokens := range clientTokens {
-		client.RemoveTokens(tokens)
+		if err := client.RemoveTokens(tokens); err != nil {
+			log.Printf("[WSPool] failed to unsubscribe tokens from client %s: %v", client.ID(), err)
+		}
 
 		// 如果客户端没有任何 token 了，但保留连接（作为空闲连接）
 		// 不关闭它，以便后续可以复用

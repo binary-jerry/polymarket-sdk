@@ -70,7 +70,7 @@ func (m *Manager) Connect() error {
 
 		// 设置状态变更回调
 		m.pool.SetStateChangeHandler(func(clientID string, state ConnectionState) {
-			log.Printf("[Manager] client %s state changed to %s", clientID, state)
+			//log.Printf("[Manager] client %s state changed to %s", clientID, state)
 
 			// 如果断开连接，清除相关订单簿的初始化状态
 			if state == StateReconnecting || state == StateDisconnected {
@@ -217,7 +217,7 @@ func (m *Manager) handleMessageArray(data []byte) {
 		return
 	}
 
-	log.Printf("[Manager] received batch of %d messages", len(rawMessages))
+	//log.Printf("[Manager] received array of %d messages", len(rawMessages))
 
 	for _, rawMsg := range rawMessages {
 		m.handleSingleMessage(rawMsg)
@@ -232,6 +232,7 @@ func (m *Manager) handleSingleMessage(data []byte) {
 		log.Printf("[Manager] failed to unmarshal raw message: %v", err)
 		return
 	}
+	//log.Printf("[Manager] received single  messages")
 
 	switch raw.EventType {
 	case EventTypeBook:
@@ -256,7 +257,6 @@ func (m *Manager) handleBookMessage(data []byte) {
 		log.Printf("[Manager] failed to unmarshal book message: %v", err)
 		return
 	}
-
 	// 解析时间戳
 	ts, err := strconv.ParseInt(msg.Timestamp, 10, 64)
 	if err != nil {

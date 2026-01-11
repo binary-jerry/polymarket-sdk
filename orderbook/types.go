@@ -125,10 +125,16 @@ type RawMessage struct {
 	EventType EventType `json:"event_type"`
 }
 
-// SubscribeRequest 订阅请求
+// SubscribeRequest 初始订阅请求（连接时使用）
 type SubscribeRequest struct {
 	AssetsIDs []string `json:"assets_ids"`
 	Type      string   `json:"type"`
+}
+
+// DynamicSubscribeRequest 动态订阅请求（连接后添加/移除订阅使用）
+type DynamicSubscribeRequest struct {
+	AssetsIDs []string `json:"assets_ids"`
+	Operation string   `json:"operation"` // "subscribe" or "unsubscribe"
 }
 
 // OrderBookUpdate 订单簿更新事件（通过channel通知）
