@@ -31,6 +31,9 @@ go test ./auth/... -v -run TestL1Signer
 # 运行测试（带覆盖率）
 go test ./... -cover
 
+# 运行测试（带竞态检测）
+go test ./... -race
+
 # 格式化代码
 go fmt ./...
 
@@ -100,6 +103,26 @@ sdk, err := polymarket.NewTradingSDK(nil, privateKey, creds)
 - 订单簿快照和增量更新
 - 连接池管理（每连接最多50个token）
 
+### OrderBook 架构层次
+
+```
+┌─────────────────────┐
+│   SDK (Public API)  │  - Subscribe/Unsubscribe, GetDepth, GetBBO
+└──────────┬──────────┘
+           │
+┌──────────▼──────────┐
+│   Manager           │  - 消息路由、订单簿状态管理、pending 消息缓存
+└──────────┬──────────┘
+           │
+┌──────────▼──────────┐
+│   WSPool            │  - 连接池，自动分片（50 token/连接）
+└──────────┬──────────┘
+           │
+┌──────────▼──────────┐
+│  WSClient (x N)     │  - 单连接、心跳、指数退避重连
+└─────────────────────┘
+```
+
 ### Authentication Flow
 
 ```
@@ -110,12 +133,39 @@ sdk, err := polymarket.NewTradingSDK(nil, privateKey, creds)
    Credentials.Secret + 请求数据 -> HMAC-SHA256 -> 请求头
 ```
 
+### Order Signing Flow
+
+```
+CreateOrderRequest
+    ↓
+OrderSigner.CreateSignedOrder() (EIP-712 签名)
+    ↓
+PostOrderRequest (已签名)
+    ↓
+L2Signer.GetAuthHeaders() (HMAC 签名)
+    ↓
+HTTP 请求到 CLOB API
+```
+
 ### Key Design Patterns
 
 1. **连接池分片**: WebSocket 连接池自动分片（每连接50个token）
 2. **惰性排序**: 订单簿使用 dirty flag，仅查询时排序
 3. **自动重连**: 指数退避 + 抖动的重连策略
 4. **统一错误处理**: 所有模块使用 common/errors.go 定义的错误类型
+
+### Default Configuration
+
+| 配置项 | 默认值 |
+|--------|--------|
+| HTTPTimeout | 30s |
+| MaxRetries | 3 |
+| RetryDelayMs | 1000 |
+| MaxTokensPerConn | 50 |
+| ReconnectMinInterval | 1000ms |
+| ReconnectMaxInterval | 30000ms |
+| PingInterval | 30s |
+| PongTimeout | 10s |
 
 ### Contract Addresses (Polygon Mainnet)
 
@@ -168,6 +218,10 @@ NegRisk 市场使用不同的合约地址：
 2. **USDC 精度**: USDC 使用 6 位小数（`Decimal6 = 1000000`）
 3. **API 凭证**: 首次使用需要调用 `CreateOrDeriveAPICredentials()` 获取凭证
 4. **订单类型**: 支持 GTC、GTD、FOK、FAK 四种订单类型
+5. **批量订单限制**: `CreateOrders` 最多支持 15 个订单
+6. **订单簿初始化**: 调用 `GetDepth` 前必须等待 `IsInitialized(tokenID)` 返回 true
+7. **WebSocket 订阅**: `Subscribe()` 只能调用一次，不能追加订阅
+8. **Updates Channel**: 如果不消费 `Updates()` channel，缓冲区满时旧消息会被丢弃
 
 ## OrderBook 数据一致性保障
 
