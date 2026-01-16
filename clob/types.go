@@ -112,7 +112,7 @@ type CreateOrderRequest struct {
 
 // SignedOrder 已签名订单
 type SignedOrder struct {
-	Salt          string `json:"salt"`
+	Salt          int64  `json:"salt"`           // 数字类型，与 Python SDK 一致
 	Maker         string `json:"maker"`
 	Signer        string `json:"signer"`
 	Taker         string `json:"taker"`

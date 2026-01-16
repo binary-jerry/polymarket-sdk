@@ -185,6 +185,29 @@ func (s *SDK) SetCredentials(creds *auth.Credentials) {
 	}
 }
 
+// SetCredentialsWithAddress 设置凭证（指定账户地址）
+func (s *SDK) SetCredentialsWithAddress(creds *auth.Credentials, address string) {
+	if s.Trading != nil {
+		s.Trading.SetCredentialsWithAddress(creds, address)
+	}
+}
+
+// SetFunderAddress 设置代理钱包地址（用于代理钱包模式）
+// funderAddress: 代理钱包地址（持有资金的地址）
+func (s *SDK) SetFunderAddress(funderAddress string) {
+	if s.Trading != nil {
+		s.Trading.SetFunderAddress(funderAddress)
+	}
+}
+
+// SetSignatureType 设置签名类型
+// signatureType: 0=EOA, 1=POLY_PROXY, 2=GNOSIS_SAFE
+func (s *SDK) SetSignatureType(signatureType int) {
+	if s.Trading != nil {
+		s.Trading.SetSignatureType(signatureType)
+	}
+}
+
 // IsTradingEnabled 是否启用交易功能
 func (s *SDK) IsTradingEnabled() bool {
 	return s.Trading != nil && s.l1Signer != nil

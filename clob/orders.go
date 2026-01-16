@@ -25,9 +25,10 @@ func (c *Client) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*Ord
 	}
 
 	// 构建提交请求
+	// Owner 使用 API Key（与 Python SDK 一致）
 	postReq := &PostOrderRequest{
 		Order:     signedOrder,
-		Owner:     c.GetAddress(),
+		Owner:     c.credentials.APIKey,
 		OrderType: orderType,
 	}
 
@@ -68,6 +69,8 @@ func (c *Client) CreateOrders(ctx context.Context, reqs []*CreateOrderRequest) (
 	}
 
 	// 创建已签名订单
+	// Owner 使用 API Key（与 Python SDK 一致）
+	ownerKey := c.credentials.APIKey
 	postReqs := make([]*PostOrderRequest, 0, len(reqs))
 	for _, req := range reqs {
 		signedOrder, err := c.orderSigner.CreateSignedOrder(req)
@@ -82,7 +85,7 @@ func (c *Client) CreateOrders(ctx context.Context, reqs []*CreateOrderRequest) (
 
 		postReqs = append(postReqs, &PostOrderRequest{
 			Order:     signedOrder,
-			Owner:     c.GetAddress(),
+			Owner:     ownerKey,
 			OrderType: orderType,
 		})
 	}
@@ -337,9 +340,10 @@ func (c *Client) CreatePreSignedOrder(req *CreateOrderRequest) (*PreSignedOrder,
 	}
 
 	// 构建提交请求
+	// Owner 使用 funder 地址（代理钱包模式）或签名者地址（EOA 模式）
 	postReq := &PostOrderRequest{
 		Order:     signedOrder,
-		Owner:     c.GetAddress(),
+		Owner:     c.GetFunderAddress(),
 		OrderType: orderType,
 	}
 

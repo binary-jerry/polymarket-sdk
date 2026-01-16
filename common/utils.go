@@ -2,6 +2,7 @@ package common
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -38,16 +39,21 @@ func GenerateRandomHex(length int) (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// GenerateSalt 生成订单盐值（256位随机数）
+// GenerateSalt 生成订单盐值
+// 使用与 Python SDK 一致的方式：timestamp * random
 func GenerateSalt() (*big.Int, error) {
-	max := new(big.Int)
-	max.Exp(big.NewInt(2), big.NewInt(256), nil).Sub(max, big.NewInt(1))
-
-	salt, err := rand.Int(rand.Reader, max)
+	now := time.Now().Unix()
+	// 生成 0-1 之间的随机数
+	randBytes := make([]byte, 8)
+	_, err := rand.Read(randBytes)
 	if err != nil {
 		return nil, err
 	}
-	return salt, nil
+	// 将随机字节转换为 0-1 之间的浮点数
+	randVal := float64(binary.BigEndian.Uint64(randBytes)) / float64(^uint64(0))
+	// 计算 salt = now * random
+	salt := int64(float64(now) * randVal)
+	return big.NewInt(salt), nil
 }
 
 // GenerateNonce 生成订单 nonce

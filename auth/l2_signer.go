@@ -30,15 +30,10 @@ func NewL2Signer(address string, creds *Credentials) *L2Signer {
 func (s *L2Signer) Sign(method, path, timestamp, body string) (string, error) {
 	message := timestamp + method + path + body
 
-	fmt.Printf(">>> Sign DEBUG:\n")
-	fmt.Printf("  Message to sign: %s\n", message)
-	fmt.Printf("  Message length: %d\n", len(message))
-
 	// 解码 Base64 编码的 secret
 	// Polymarket 使用 URL-safe base64，先尝试 URL-safe 解码，失败则尝试标准解码
 	var secretBytes []byte
 	var err error
-	var decodingMethod string
 
 	// 先尝试 URL-safe base64（带 padding）
 	secretBytes, err = base64.URLEncoding.DecodeString(s.credentials.Secret)
@@ -49,32 +44,15 @@ func (s *L2Signer) Sign(method, path, timestamp, body string) (string, error) {
 			// 最后尝试标准 base64
 			secretBytes, err = base64.StdEncoding.DecodeString(s.credentials.Secret)
 			if err != nil {
-				fmt.Printf("  ERROR: Failed to decode secret with all methods\n")
 				return "", err
 			}
-			decodingMethod = "StdEncoding"
-		} else {
-			decodingMethod = "RawURLEncoding"
 		}
-	} else {
-		decodingMethod = "URLEncoding"
 	}
-
-	fmt.Printf("  Secret decoded using: %s\n", decodingMethod)
-	fmt.Printf("  Secret bytes length: %d\n", len(secretBytes))
 
 	// 计算 HMAC-SHA256
 	h := hmac.New(sha256.New, secretBytes)
 	h.Write([]byte(message))
 	signature := h.Sum(nil)
-
-	// 尝试两种编码
-	urlSafeSignature := base64.URLEncoding.EncodeToString(signature)
-	stdSignature := base64.StdEncoding.EncodeToString(signature)
-
-	fmt.Printf("  Signature (URL-safe): %s\n", urlSafeSignature)
-	fmt.Printf("  Signature (Standard): %s\n", stdSignature)
-	fmt.Printf("  Using: URL-safe\n")
 
 	// 必须使用 URL-safe Base64 编码（与 Python SDK 一致）
 	// 参考：https://github.com/Polymarket/py-clob-client/issues/190
@@ -88,30 +66,14 @@ func (s *L2Signer) GetAuthHeaders(method, path, body string) (*L2AuthHeaders, er
 	// 参考：https://github.com/Polymarket/py-clob-client/issues/190
 	timestamp := fmt.Sprintf("%d", common.TimestampSec()-5)
 
-	// 调试日志
-	fmt.Printf("\n========== L2 AUTH DEBUG ==========\n")
-	fmt.Printf("Method: %s\n", method)
-	fmt.Printf("Path: %s\n", path)
-	fmt.Printf("Timestamp: %s\n", timestamp)
-	fmt.Printf("Body length: %d\n", len(body))
-	if len(body) < 500 {
-		fmt.Printf("Body: %s\n", body)
-	} else {
-		fmt.Printf("Body (first 500 chars): %s...\n", body[:500])
-	}
-	fmt.Printf("Address: %s\n", s.address)
-	fmt.Printf("API Key: %s\n", s.credentials.APIKey)
-	fmt.Printf("Passphrase: %s\n", s.credentials.Passphrase)
-	fmt.Printf("Secret: %s\n", s.credentials.Secret)
-
 	signature, err := s.Sign(method, path, timestamp, body)
 	if err != nil {
-		fmt.Printf("ERROR signing: %v\n", err)
 		return nil, err
 	}
 
-	fmt.Printf("Signature: %s\n", signature)
-	fmt.Printf("===================================\n\n")
+	// 临时调试日志
+	//fmt.Printf("[L2 Auth] Address: %s, API Key: %s, Timestamp: %s, Signature: %s\n",
+	//s.address, s.credentials.APIKey, timestamp, signature)
 
 	return &L2AuthHeaders{
 		Address:    s.address,

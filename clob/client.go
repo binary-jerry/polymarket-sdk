@@ -128,6 +128,42 @@ func (c *Client) SetCredentials(creds *auth.Credentials) {
 	c.l2Signer = auth.NewL2Signer(c.l1Signer.GetAddress(), creds)
 }
 
+// SetCredentialsWithAddress 设置凭证（指定账户地址）
+func (c *Client) SetCredentialsWithAddress(creds *auth.Credentials, address string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.credentials = creds
+	c.l2Signer = auth.NewL2Signer(address, creds)
+}
+
+// SetFunderAddress 设置代理钱包地址（用于代理钱包模式）
+// funderAddress: 代理钱包地址（持有资金的地址）
+func (c *Client) SetFunderAddress(funderAddress string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.orderSigner != nil {
+		c.orderSigner.SetFunderAddress(funderAddress)
+	}
+}
+
+// SetSignatureType 设置签名类型
+// signatureType: 0=EOA, 1=POLY_PROXY, 2=GNOSIS_SAFE
+func (c *Client) SetSignatureType(signatureType int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.orderSigner != nil {
+		c.orderSigner.SetSignatureType(signatureType)
+	}
+}
+
+// GetFunderAddress 获取 Maker 地址（代理钱包或签名钱包）
+func (c *Client) GetFunderAddress() string {
+	if c.orderSigner != nil {
+		return c.orderSigner.GetMakerAddress()
+	}
+	return c.GetAddress()
+}
+
 // CreateOrDeriveAPICredentials 创建或衍生 API 凭证
 func (c *Client) CreateOrDeriveAPICredentials(ctx context.Context) (*auth.Credentials, error) {
 	manager := auth.NewCredentialsManager(c.l1Signer, c.config.Endpoint)
