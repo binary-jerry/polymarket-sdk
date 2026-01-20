@@ -133,6 +133,7 @@ func (c *WSClient) Connect() error {
 		c.mu.Lock()
 		c.lastPong = time.Now()
 		c.mu.Unlock()
+		log.Printf("[Polymarket WSClient %s] received pong", c.id)
 		return nil
 	})
 
@@ -272,13 +273,16 @@ func (c *WSClient) readLoop() {
 			return
 		}
 
-		// 设置读取超时
-		conn.SetReadDeadline(time.Now().Add(time.Duration(c.config.PingInterval+c.config.PongTimeout) * time.Second))
+		// 不设置读取超时，依赖 heartbeat 检测连接状态
+		// 如果设置 ReadDeadline，冷清的市场（无数据消息）会导致超时
+		// 但 pong 是控制帧，不会让 ReadMessage 返回
 
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("[WSClient %s] read error: %v", c.id, err)
+				log.Printf("[ Polymarket WSClient %s] read error (unexpected close): %v", c.id, err)
+			} else {
+				log.Printf("[ Polymarket WSClient %s] read error: %v", c.id, err)
 			}
 			return
 		}
@@ -320,7 +324,7 @@ func (c *WSClient) writeLoop() {
 
 			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-				log.Printf("[WSClient %s] write error: %v", c.id, err)
+				log.Printf("[ Polymarket WSClient %s] write error: %v", c.id, err)
 				return
 			}
 		}
@@ -357,17 +361,21 @@ func (c *WSClient) heartbeatLoop() {
 			}
 
 			// 检查pong超时
-			if time.Since(lastPong) > time.Duration(c.config.PingInterval+c.config.PongTimeout)*time.Second {
-				log.Printf("[WSClient %s] pong timeout, reconnecting...", c.id)
+			timeSinceLastPong := time.Since(lastPong)
+			timeout := time.Duration(c.config.PingInterval+c.config.PongTimeout) * time.Second
+			if timeSinceLastPong > timeout {
+				log.Printf("[ Polymarket WSClient %s] pong timeout, last pong: %v ago (timeout: %v), reconnecting...",
+					c.id, timeSinceLastPong.Round(time.Second), timeout)
 				return
 			}
 
 			// 发送ping
 			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				log.Printf("[WSClient %s] ping error: %v", c.id, err)
+				log.Printf("[ Polymarket WSClient %s] ping error: %v", c.id, err)
 				return
 			}
+			log.Printf("[ Polymarket WSClient %s] sent ping, last pong: %v ago", c.id, timeSinceLastPong.Round(time.Second))
 		}
 	}
 }
@@ -443,7 +451,7 @@ func (c *WSClient) reconnect() {
 
 		// 检查最大重连次数
 		if c.config.ReconnectMaxAttempts > 0 && int(attempts) > c.config.ReconnectMaxAttempts {
-			log.Printf("[WSClient %s] max reconnect attempts reached", c.id)
+			log.Printf("[ Polymarket WSClient %s] max reconnect attempts reached", c.id)
 			c.setState(StateDisconnected)
 			atomic.StoreInt32(&c.reconnecting, 0)
 			return
@@ -451,7 +459,7 @@ func (c *WSClient) reconnect() {
 
 		// 计算退避时间（指数退避 + 抖动）
 		backoff := c.calculateBackoff(int(attempts))
-		log.Printf("[WSClient %s] reconnecting in %v (attempt %d)", c.id, backoff, attempts)
+		log.Printf("[ Polymarket WSClient %s] reconnecting in %v (attempt %d)", c.id, backoff, attempts)
 
 		select {
 		case <-time.After(backoff):
@@ -463,11 +471,11 @@ func (c *WSClient) reconnect() {
 
 		// 尝试重连
 		if err := c.Connect(); err != nil {
-			log.Printf("[WSClient %s] reconnect failed: %v", c.id, err)
+			log.Printf("[ Polymarket WSClient %s] reconnect failed: %v", c.id, err)
 			continue
 		}
 
-		log.Printf("[WSClient %s] reconnected successfully", c.id)
+		log.Printf("[ Polymarket WSClient %s] reconnected successfully", c.id)
 		return
 	}
 }
