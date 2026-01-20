@@ -271,3 +271,64 @@ func TestGetBaseURL(t *testing.T) {
 		t.Errorf("GetBaseURL() = %s, expected https://api.example.com/v1", client.GetBaseURL())
 	}
 }
+
+func TestStructToQueryStringWithSlice(t *testing.T) {
+	type TestParams struct {
+		Name string   `url:"name,omitempty"`
+		Ids  []string `url:"id,omitempty"`
+	}
+
+	// 测试多个 ID
+	params := TestParams{
+		Name: "test",
+		Ids:  []string{"558966", "558981"},
+	}
+
+	result := structToQueryString(params)
+
+	// 验证生成的查询字符串包含多个 id 参数
+	// url.Values.Encode() 会生成 id=558966&id=558981&name=test 格式
+	if result == "" {
+		t.Error("Expected non-empty query string")
+	}
+
+	// 验证包含两个 id 参数
+	expectedId1 := "id=558966"
+	expectedId2 := "id=558981"
+	if !contains(result, expectedId1) || !contains(result, expectedId2) {
+		t.Errorf("Expected query string to contain %s and %s, got: %s", expectedId1, expectedId2, result)
+	}
+
+	// 测试空数组（应该不生成参数）
+	emptyParams := TestParams{
+		Name: "test",
+		Ids:  []string{},
+	}
+	emptyResult := structToQueryString(emptyParams)
+	if contains(emptyResult, "id=") {
+		t.Errorf("Expected empty Ids to not generate id param, got: %s", emptyResult)
+	}
+
+	// 测试 nil 数组
+	nilParams := TestParams{
+		Name: "test",
+		Ids:  nil,
+	}
+	nilResult := structToQueryString(nilParams)
+	if contains(nilResult, "id=") {
+		t.Errorf("Expected nil Ids to not generate id param, got: %s", nilResult)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

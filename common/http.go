@@ -284,6 +284,26 @@ func structToQueryString(params interface{}) string {
 					strValue = elem.String()
 				}
 			}
+		case reflect.Slice:
+			// 处理数组类型，生成 key=val1&key=val2 格式
+			if field.Len() > 0 || !omitempty {
+				for j := 0; j < field.Len(); j++ {
+					elem := field.Index(j)
+					var elemStr string
+					switch elem.Kind() {
+					case reflect.String:
+						elemStr = elem.String()
+					case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+						elemStr = fmt.Sprintf("%d", elem.Int())
+					case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+						elemStr = fmt.Sprintf("%d", elem.Uint())
+					}
+					if elemStr != "" {
+						values.Add(key, elemStr)
+					}
+				}
+			}
+			continue // slice 已处理，跳过后面的逻辑
 		}
 
 		if strValue != "" || !omitempty {

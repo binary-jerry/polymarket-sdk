@@ -131,6 +131,9 @@ type MarketListParams struct {
 	// 搜索
 	TextQuery string `url:"text_query,omitempty"` // 文本搜索
 	Id        int    `url:"id,omitempty"`
+
+	// 批量 ID 查询 (生成 ?id=xxx&id=yyy 格式)
+	Ids []string `url:"id,omitempty"`
 }
 
 // MarketListResponse 市场列表响应
