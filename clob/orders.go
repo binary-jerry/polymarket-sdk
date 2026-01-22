@@ -21,7 +21,7 @@ func (c *Client) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*Ord
 	// 确定订单类型
 	orderType := req.Type
 	if orderType == "" {
-		orderType = OrderTypeGTC
+		return nil, fmt.Errorf("order type is required, must be GTC/FOK/GTD/FAK")
 	}
 
 	// 构建提交请求
@@ -122,7 +122,7 @@ func (c *Client) GetOrder(ctx context.Context, orderID string) (*Order, error) {
 		return nil, fmt.Errorf("failed to ensure credentials: %w", err)
 	}
 
-	path := "/order/" + orderID
+	path := "/data/order/" + orderID
 
 	// 获取认证头
 	authHeaders, err := c.getL2AuthHeaders("GET", path, "")
@@ -319,8 +319,8 @@ func (c *Client) CancelAllOrders(ctx context.Context) error {
 
 // PreSignedOrder 预签名订单（包含签名后的订单和提交请求）
 type PreSignedOrder struct {
-	SignedOrder *SignedOrder     // 已签名的订单
-	PostRequest *PostOrderRequest // 提交请求体
+	SignedOrder *SignedOrder        // 已签名的订单
+	PostRequest *PostOrderRequest   // 提交请求体
 	Request     *CreateOrderRequest // 原始请求（用于参考）
 }
 

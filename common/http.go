@@ -15,19 +15,19 @@ import (
 
 // HTTPClient HTTP 客户端封装
 type HTTPClient struct {
-	client       *http.Client
-	baseURL      string
-	maxRetries   int
-	retryDelay   time.Duration
+	client         *http.Client
+	baseURL        string
+	maxRetries     int
+	retryDelay     time.Duration
 	defaultHeaders map[string]string
 }
 
 // HTTPClientConfig HTTP 客户端配置
 type HTTPClientConfig struct {
-	BaseURL       string
-	Timeout       time.Duration
-	MaxRetries    int
-	RetryDelayMs  int
+	BaseURL      string
+	Timeout      time.Duration
+	MaxRetries   int
+	RetryDelayMs int
 }
 
 // NewHTTPClient 创建 HTTP 客户端
@@ -209,6 +209,15 @@ func (c *HTTPClient) doSingleRequest(ctx context.Context, method, fullURL string
 
 	// 解析响应
 	if result != nil && len(respBody) > 0 {
+		//// 检查是否为 null 响应（处理可能的空白字符）
+		//trimmed := strings.TrimSpace(string(respBody))
+		//if trimmed == "null" {
+		//	return &APIError{
+		//		StatusCode: resp.StatusCode,
+		//		Code:       "NotFound",
+		//		Message:    "resource not found (null response)",
+		//	}
+		//}
 		if err := json.Unmarshal(respBody, result); err != nil {
 			return fmt.Errorf("failed to unmarshal response: %w", err)
 		}

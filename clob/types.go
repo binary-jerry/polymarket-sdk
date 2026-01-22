@@ -1,10 +1,55 @@
 package clob
 
 import (
+	"encoding/json"
+	"strconv"
 	"time"
 
 	"github.com/shopspring/decimal"
 )
+
+// Timestamp 灵活的时间戳类型，可以解析数字或字符串
+type Timestamp int64
+
+// UnmarshalJSON 自定义 JSON 反序列化
+func (t *Timestamp) UnmarshalJSON(data []byte) error {
+	// 尝试解析为数字
+	var num int64
+	if err := json.Unmarshal(data, &num); err == nil {
+		*t = Timestamp(num)
+		return nil
+	}
+
+	// 尝试解析为字符串
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		if str == "" || str == "0" {
+			*t = 0
+			return nil
+		}
+		num, err := strconv.ParseInt(str, 10, 64)
+		if err != nil {
+			return err
+		}
+		*t = Timestamp(num)
+		return nil
+	}
+
+	return nil
+}
+
+// ToTime 转换为 time.Time
+func (t Timestamp) ToTime() time.Time {
+	if t == 0 {
+		return time.Time{}
+	}
+	return time.Unix(int64(t), 0)
+}
+
+// Int64 转换为 int64
+func (t Timestamp) Int64() int64 {
+	return int64(t)
+}
 
 // OrderType 订单类型
 type OrderType string
@@ -55,29 +100,20 @@ const (
 // Order 订单
 type Order struct {
 	ID              string          `json:"id"`
-	OrderID         string          `json:"order_id,omitempty"`
+	Status          OrderStatus     `json:"status"`
+	Owner           string          `json:"owner"`
+	MakerAddress    string          `json:"maker_address"`
 	Market          string          `json:"market"`
 	AssetID         string          `json:"asset_id"`
 	Side            OrderSide       `json:"side"`
-	Type            OrderType       `json:"type,omitempty"`
-	Price           decimal.Decimal `json:"price"`
 	OriginalSize    decimal.Decimal `json:"original_size"`
 	SizeMatched     decimal.Decimal `json:"size_matched"`
-	Status          OrderStatus     `json:"status"`
-	Owner           string          `json:"owner"`
-	Outcome         string          `json:"outcome,omitempty"`
-
-	// 合约相关
-	MakerAddress    string          `json:"maker_address,omitempty"`
-	Salt            string          `json:"salt,omitempty"`
-	Signature       string          `json:"signature,omitempty"`
-
-	// 时间
-	CreatedAt       time.Time       `json:"created_at,omitempty"`
-	ExpiresAt       *time.Time      `json:"expiration,omitempty"`
-
-	// 费率
-	FeeRateBps      int             `json:"fee_rate_bps,omitempty"`
+	Price           decimal.Decimal `json:"price"`
+	Outcome         string          `json:"outcome"`
+	Expiration      string          `json:"expiration"`      // "0" 表示永不过期
+	OrderType       OrderType       `json:"order_type"`      // GTC, GTD, FOK, FAK
+	AssociateTrades []string        `json:"associate_trades,omitempty"`
+	CreatedAt       Timestamp       `json:"created_at"`
 }
 
 // GetRemainingSize 获取剩余数量
@@ -132,6 +168,7 @@ type PostOrderRequest struct {
 	Order     *SignedOrder `json:"order"`
 	Owner     string       `json:"owner"`
 	OrderType OrderType    `json:"orderType"`
+	PostOnly  bool         `json:"postOnly"` // FOK/FAK 不能使用 postOnly=true
 }
 
 // OrdersQueryParams 订单查询参数
@@ -155,18 +192,36 @@ type OrderResponse struct {
 // Trade 成交记录
 type Trade struct {
 	ID              string          `json:"id"`
+	TakerOrderID    string          `json:"taker_order_id,omitempty"`
 	Market          string          `json:"market"`
 	AssetID         string          `json:"asset_id"`
 	Side            OrderSide       `json:"side"`
 	Price           decimal.Decimal `json:"price"`
 	Size            decimal.Decimal `json:"size"`
-	Fee             decimal.Decimal `json:"fee,omitempty"`
-	Timestamp       time.Time       `json:"timestamp"`
+	FeeRateBPS      string          `json:"fee_rate_bps,omitempty"`
+	Status          string          `json:"status,omitempty"`
+	MatchTime       string          `json:"match_time,omitempty"`
+	LastUpdate      string          `json:"last_update,omitempty"`
+	Outcome         string          `json:"outcome,omitempty"`
+	BucketIndex     int             `json:"bucket_index,omitempty"`
 	Owner           string          `json:"owner,omitempty"`
-	OrderID         string          `json:"order_id,omitempty"`
-	MatchedOrderID  string          `json:"matched_order_id,omitempty"`
-	TradeType       string          `json:"trade_type,omitempty"`  // "MAKER" 或 "TAKER"
+	MakerAddress    string          `json:"maker_address,omitempty"`
 	TransactionHash string          `json:"transaction_hash,omitempty"`
+	MakerOrders     []MakerOrder    `json:"maker_orders,omitempty"`
+	TraderSide      string          `json:"trader_side,omitempty"` // "MAKER" 或 "TAKER"
+}
+
+// MakerOrder Maker 订单信息（成交对手方）
+type MakerOrder struct {
+	OrderID       string `json:"order_id"`
+	Owner         string `json:"owner"`
+	MakerAddress  string `json:"maker_address"`
+	MatchedAmount string `json:"matched_amount"`
+	Price         string `json:"price"`
+	FeeRateBPS    string `json:"fee_rate_bps"`
+	AssetID       string `json:"asset_id"`
+	Outcome       string `json:"outcome"`
+	Side          string `json:"side"`
 }
 
 // TradesQueryParams 交易查询参数

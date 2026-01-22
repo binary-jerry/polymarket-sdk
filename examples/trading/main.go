@@ -159,7 +159,7 @@ func main() {
 		fmt.Printf("最近交易数量: %d\n", len(trades))
 		for _, trade := range trades {
 			fmt.Printf("  - %s: %s @ %s (%s)\n",
-				trade.Side, trade.Size, trade.Price, trade.Timestamp)
+				trade.Side, trade.Size, trade.Price, trade.MatchTime)
 		}
 	}
 

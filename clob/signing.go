@@ -2,6 +2,7 @@ package clob
 
 import (
 	"fmt"
+	"log"
 	"math/big"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
@@ -13,13 +14,13 @@ import (
 
 // OrderSigner 订单签名器
 type OrderSigner struct {
-	signer           *auth.L1Signer
-	chainID          int
-	exchangeAddr     string // 标准市场交易合约
-	negRiskExchange  string // NegRisk 市场交易合约
-	negRiskAdapter   string // NegRisk 适配器合约
-	funderAddress    string // 代理钱包地址（持有资金）
-	signatureType    int    // 签名类型: 0=EOA, 1=POLY_PROXY, 2=GNOSIS_SAFE
+	signer          *auth.L1Signer
+	chainID         int
+	exchangeAddr    string // 标准市场交易合约
+	negRiskExchange string // NegRisk 市场交易合约
+	negRiskAdapter  string // NegRisk 适配器合约
+	funderAddress   string // 代理钱包地址（持有资金）
+	signatureType   int    // 签名类型: 0=EOA, 1=POLY_PROXY, 2=GNOSIS_SAFE
 }
 
 // NewOrderSigner 创建订单签名器
@@ -105,8 +106,8 @@ func (s *OrderSigner) CreateSignedOrder(req *CreateOrderRequest) (*SignedOrder, 
 	// 构建订单载荷
 	orderPayload := &auth.OrderPayload{
 		Salt:          salt.String(),
-		Maker:         makerAddr,              // 代理钱包模式: funder 地址; EOA 模式: 签名者地址
-		Signer:        signerAddr,             // 始终是签名钱包地址
+		Maker:         makerAddr,  // 代理钱包模式: funder 地址; EOA 模式: 签名者地址
+		Signer:        signerAddr, // 始终是签名钱包地址
 		Taker:         takerAddrChecksum,
 		TokenID:       req.TokenID,
 		MakerAmount:   makerAmount.String(),
@@ -115,7 +116,7 @@ func (s *OrderSigner) CreateSignedOrder(req *CreateOrderRequest) (*SignedOrder, 
 		Nonce:         nonce.String(),
 		FeeRateBps:    fmt.Sprintf("%d", req.FeeRateBps),
 		Side:          req.Side.ToInt(),
-		SignatureType: s.signatureType,        // 使用配置的签名类型
+		SignatureType: s.signatureType, // 使用配置的签名类型
 		IsNegRisk:     req.IsNegRisk,
 	}
 
@@ -143,6 +144,9 @@ func (s *OrderSigner) CreateSignedOrder(req *CreateOrderRequest) (*SignedOrder, 
 		SignatureType: orderPayload.SignatureType,
 		Signature:     signature,
 	}
+
+	// DEBUG: 打印输出的 tokenId
+	log.Printf("[DEBUG Signing] 输出 signedOrder.TokenId: %s (长度: %d)", signedOrder.TokenId, len(signedOrder.TokenId))
 
 	return signedOrder, nil
 }
