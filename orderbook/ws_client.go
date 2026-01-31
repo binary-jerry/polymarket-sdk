@@ -137,6 +137,12 @@ func (c *WSClient) Connect() error {
 		return nil
 	})
 
+	// 记录关闭原因（服务端主动关闭时可见）
+	conn.SetCloseHandler(func(code int, text string) error {
+		log.Printf("[Polymarket WSClient %s] close: code=%d text=%s", c.id, code, text)
+		return nil
+	})
+
 	// 启动goroutines
 	c.loopWg.Add(3)
 	go c.readLoop()
